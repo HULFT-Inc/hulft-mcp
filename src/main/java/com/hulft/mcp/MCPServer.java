@@ -299,61 +299,90 @@ public class MCPServer {
     private static String handlePdfUpload(String filename, String base64Content) {
         log.info("PDF upload: {} ({} bytes base64)", filename, base64Content.length());
         
-        // TODO: Decode base64 and process PDF
-        // byte[] pdfBytes = Base64.getDecoder().decode(base64Content);
-        // 
-        // TODO: Extract text from PDF using Apache PDFBox or similar
-        // PDDocument document = PDDocument.load(pdfBytes);
-        // PDFTextStripper stripper = new PDFTextStripper();
-        // String text = stripper.getText(document);
-        //
-        // TODO: Store PDF in database or file system
-        // TODO: Index PDF content for search
-        // TODO: Extract metadata (author, creation date, etc.)
-        
-        return String.format("PDF uploaded: %s\nSize: %d bytes (base64)\n\nTODO: Implement PDF processing", 
-            filename, base64Content.length());
+        try {
+            String jobId = java.util.UUID.randomUUID().toString();
+            String jobPath = createJobFolder(jobId);
+            byte[] pdfBytes = java.util.Base64.getDecoder().decode(base64Content);
+            
+            java.nio.file.Path filePath = java.nio.file.Paths.get(jobPath, filename);
+            java.nio.file.Files.write(filePath, pdfBytes);
+            
+            log.info("PDF saved to: {}", filePath);
+            
+            // TODO: Extract text from PDF using Apache PDFBox
+            // TODO: Index PDF content for search
+            // TODO: Extract metadata
+            
+            return String.format("PDF uploaded successfully!\nJob ID: %s\nPath: %s\nSize: %d bytes", 
+                jobId, filePath, pdfBytes.length);
+        } catch (Exception e) {
+            log.error("Error uploading PDF", e);
+            return "Error uploading PDF: " + e.getMessage();
+        }
     }
     
     private static String handleExcelUpload(String filename, String base64Content) {
         log.info("Excel upload: {} ({} bytes base64)", filename, base64Content.length());
         
-        // TODO: Decode base64 and process Excel
-        // byte[] excelBytes = Base64.getDecoder().decode(base64Content);
-        //
-        // TODO: Parse Excel using Apache POI
-        // Workbook workbook = WorkbookFactory.create(new ByteArrayInputStream(excelBytes));
-        // Sheet sheet = workbook.getSheetAt(0);
-        // for (Row row : sheet) {
-        //     for (Cell cell : row) {
-        //         // Process cells
-        //     }
-        // }
-        //
-        // TODO: Convert to JSON or CSV
-        // TODO: Store data in database
-        // TODO: Generate summary statistics
-        
-        return String.format("Excel uploaded: %s\nSize: %d bytes (base64)\n\nTODO: Implement Excel processing", 
-            filename, base64Content.length());
+        try {
+            String jobId = java.util.UUID.randomUUID().toString();
+            String jobPath = createJobFolder(jobId);
+            byte[] excelBytes = java.util.Base64.getDecoder().decode(base64Content);
+            
+            java.nio.file.Path filePath = java.nio.file.Paths.get(jobPath, filename);
+            java.nio.file.Files.write(filePath, excelBytes);
+            
+            log.info("Excel saved to: {}", filePath);
+            
+            // TODO: Parse Excel using Apache POI
+            // TODO: Convert to JSON or CSV
+            // TODO: Store data in database
+            
+            return String.format("Excel uploaded successfully!\nJob ID: %s\nPath: %s\nSize: %d bytes", 
+                jobId, filePath, excelBytes.length);
+        } catch (Exception e) {
+            log.error("Error uploading Excel", e);
+            return "Error uploading Excel: " + e.getMessage();
+        }
     }
     
     private static String handleImageUpload(String filename, String base64Content) {
         log.info("Image upload: {} ({} bytes base64)", filename, base64Content.length());
         
-        // TODO: Decode base64 and process image
-        // byte[] imageBytes = Base64.getDecoder().decode(base64Content);
-        //
-        // TODO: Validate image format
-        // BufferedImage image = ImageIO.read(new ByteArrayInputStream(imageBytes));
-        //
-        // TODO: Resize/optimize image
-        // TODO: Extract EXIF metadata
-        // TODO: Store in S3 or local storage
-        // TODO: Generate thumbnail
-        // TODO: Run image recognition/OCR if needed
+        try {
+            String jobId = java.util.UUID.randomUUID().toString();
+            String jobPath = createJobFolder(jobId);
+            byte[] imageBytes = java.util.Base64.getDecoder().decode(base64Content);
+            
+            java.nio.file.Path filePath = java.nio.file.Paths.get(jobPath, filename);
+            java.nio.file.Files.write(filePath, imageBytes);
+            
+            log.info("Image saved to: {}", filePath);
+            
+            // TODO: Validate image format
+            // TODO: Resize/optimize image
+            // TODO: Extract EXIF metadata
+            // TODO: Generate thumbnail
+            
+            return String.format("Image uploaded successfully!\nJob ID: %s\nPath: %s\nSize: %d bytes", 
+                jobId, filePath, imageBytes.length);
+        } catch (Exception e) {
+            log.error("Error uploading image", e);
+            return "Error uploading image: " + e.getMessage();
+        }
+    }
+    
+    private static String createJobFolder(String jobId) throws java.io.IOException {
+        java.time.LocalDate now = java.time.LocalDate.now();
+        String year = String.valueOf(now.getYear());
+        String month = String.format("%02d", now.getMonthValue());
+        String day = String.format("%02d", now.getDayOfMonth());
         
-        return String.format("Image uploaded: %s\nSize: %d bytes (base64)\n\nTODO: Implement image processing", 
-            filename, base64Content.length());
+        String jobPath = String.format("jobs/%s/%s/%s/%s", year, month, day, jobId);
+        java.nio.file.Path path = java.nio.file.Paths.get(jobPath);
+        java.nio.file.Files.createDirectories(path);
+        
+        log.info("Created job folder: {}", jobPath);
+        return jobPath;
     }
 }
