@@ -110,20 +110,67 @@ public class MCPServer {
                                 ),
                                 "required", List.of("text")
                             )
+                        ),
+                        Map.of(
+                            "name", "read_resource",
+                            "description", "Read a resource by URI",
+                            "inputSchema", Map.of(
+                                "type", "object",
+                                "properties", Map.of(
+                                    "uri", Map.of("type", "string", "description", "Resource URI (e.g., file:///example.txt)")
+                                ),
+                                "required", List.of("uri")
+                            )
+                        ),
+                        Map.of(
+                            "name", "list_resources",
+                            "description", "List all available resources",
+                            "inputSchema", Map.of(
+                                "type", "object",
+                                "properties", Map.of()
+                            )
+                        ),
+                        Map.of(
+                            "name", "get_prompt",
+                            "description", "Get a prompt template (code-review)",
+                            "inputSchema", Map.of(
+                                "type", "object",
+                                "properties", Map.of(
+                                    "name", Map.of("type", "string", "description", "Prompt name"),
+                                    "code", Map.of("type", "string", "description", "Code to review")
+                                ),
+                                "required", List.of("name", "code")
+                            )
                         )
                     )
                 )
             );
             case "tools/call" -> {
                 Map<String, Object> params = (Map<String, Object>) request.get("params");
+                String toolName = (String) params.get("name");
                 Map<String, Object> arguments = (Map<String, Object>) params.get("arguments");
+                
+                String resultText = switch (toolName) {
+                    case "echo" -> "Echo: " + arguments.get("text");
+                    case "list_resources" -> "Available resources:\n- file:///example.txt (Example File) - An example text resource";
+                    case "read_resource" -> {
+                        String uri = (String) arguments.get("uri");
+                        yield "Content of " + uri + ":\nThis is example content from: " + uri;
+                    }
+                    case "get_prompt" -> {
+                        String code = (String) arguments.get("code");
+                        yield "Code Review Prompt:\nPlease review this code:\n\n" + code;
+                    }
+                    default -> "Unknown tool: " + toolName;
+                };
+                
                 yield Map.of(
                     "jsonrpc", "2.0",
                     "id", id,
                     "result", Map.of(
                         "content", List.of(Map.of(
                             "type", "text",
-                            "text", "Echo: " + arguments.get("text")
+                            "text", resultText
                         ))
                     )
                 );
