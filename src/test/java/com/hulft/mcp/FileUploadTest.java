@@ -16,7 +16,11 @@ public class FileUploadTest {
             "schedule_production.pdf",
             "invoice_production.pdf",
             "purchase_order.pdf",
-            "customs_declaration.pdf"
+            "customs_declaration.pdf",
+            "complex_invoice.pdf",
+            "invoice_no_purpose.pdf",
+            "ambiguous_doc.pdf",
+            "multipage_po.pdf"
         };
         
         for (String filename : pdfFiles) {
