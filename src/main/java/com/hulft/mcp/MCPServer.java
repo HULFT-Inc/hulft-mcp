@@ -112,39 +112,26 @@ public class MCPServer {
                             )
                         ),
                         Map.of(
-                            "name", "upload_pdf",
-                            "description", "Upload and process a PDF file",
+                            "name", "upload_files",
+                            "description", "Upload multiple files (PDF, Excel, or Image)",
                             "inputSchema", Map.of(
                                 "type", "object",
                                 "properties", Map.of(
-                                    "filename", Map.of("type", "string", "description", "Name of the PDF file"),
-                                    "content", Map.of("type", "string", "description", "Base64 encoded PDF content")
+                                    "files", Map.of(
+                                        "type", "array",
+                                        "description", "Array of files to upload",
+                                        "items", Map.of(
+                                            "type", "object",
+                                            "properties", Map.of(
+                                                "filename", Map.of("type", "string", "description", "File name"),
+                                                "content", Map.of("type", "string", "description", "Base64 encoded content"),
+                                                "type", Map.of("type", "string", "enum", List.of("pdf", "excel", "image"), "description", "File type")
+                                            ),
+                                            "required", List.of("filename", "content", "type")
+                                        )
+                                    )
                                 ),
-                                "required", List.of("filename", "content")
-                            )
-                        ),
-                        Map.of(
-                            "name", "upload_excel",
-                            "description", "Upload and process an Excel file",
-                            "inputSchema", Map.of(
-                                "type", "object",
-                                "properties", Map.of(
-                                    "filename", Map.of("type", "string", "description", "Name of the Excel file"),
-                                    "content", Map.of("type", "string", "description", "Base64 encoded Excel content")
-                                ),
-                                "required", List.of("filename", "content")
-                            )
-                        ),
-                        Map.of(
-                            "name", "upload_image",
-                            "description", "Upload and process an image file",
-                            "inputSchema", Map.of(
-                                "type", "object",
-                                "properties", Map.of(
-                                    "filename", Map.of("type", "string", "description", "Name of the image file"),
-                                    "content", Map.of("type", "string", "description", "Base64 encoded image content")
-                                ),
-                                "required", List.of("filename", "content")
+                                "required", List.of("files")
                             )
                         ),
                         Map.of(
@@ -197,9 +184,7 @@ public class MCPServer {
                         String code = (String) arguments.get("code");
                         yield "Code Review Prompt:\nPlease review this code:\n\n" + code;
                     }
-                    case "upload_pdf" -> handlePdfUpload((String) arguments.get("filename"), (String) arguments.get("content"));
-                    case "upload_excel" -> handleExcelUpload((String) arguments.get("filename"), (String) arguments.get("content"));
-                    case "upload_image" -> handleImageUpload((String) arguments.get("filename"), (String) arguments.get("content"));
+                    case "upload_files" -> handleMultiFileUpload((List<Map<String, Object>>) arguments.get("files"));
                     default -> "Unknown tool: " + toolName;
                 };
                 
@@ -294,6 +279,36 @@ public class MCPServer {
                 )
             );
         };
+    }
+    
+    private static String handleMultiFileUpload(List<Map<String, Object>> files) {
+        try {
+            String jobId = java.util.UUID.randomUUID().toString();
+            String jobPath = createJobFolder(jobId);
+            StringBuilder result = new StringBuilder();
+            result.append(String.format("Job ID: %s\n", jobId));
+            result.append(String.format("Files uploaded: %d\n\n", files.size()));
+            
+            for (Map<String, Object> file : files) {
+                String filename = (String) file.get("filename");
+                String content = (String) file.get("content");
+                String type = (String) file.get("type");
+                
+                byte[] fileBytes = java.util.Base64.getDecoder().decode(content);
+                java.nio.file.Path filePath = java.nio.file.Paths.get(jobPath, filename);
+                java.nio.file.Files.write(filePath, fileBytes);
+                
+                result.append(String.format("✓ %s (%s) - %d bytes\n", filename, type, fileBytes.length));
+                log.info("Saved {} to {}", filename, filePath);
+            }
+            
+            result.append(String.format("\nPath: %s", jobPath));
+            return result.toString();
+            
+        } catch (Exception e) {
+            log.error("Error uploading files", e);
+            return "Error uploading files: " + e.getMessage();
+        }
     }
     
     private static String handlePdfUpload(String filename, String base64Content) {
