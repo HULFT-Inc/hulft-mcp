@@ -281,7 +281,7 @@ public class MCPServer {
         };
     }
     
-    private static String handleMultiFileUpload(List<Map<String, Object>> files) {
+    static String handleMultiFileUpload(List<Map<String, Object>> files) {
         try {
             StringBuilder result = new StringBuilder();
             Map<String, Object> metadata = new java.util.HashMap<>();

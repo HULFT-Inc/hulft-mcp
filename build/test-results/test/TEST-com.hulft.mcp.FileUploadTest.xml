@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.hulft.mcp.FileUploadTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-01-16T22:31:44" hostname="Copper.local" time="8.35">
+  <properties/>
+  <testcase name="testUploadAllPDFs" classname="com.hulft.mcp.FileUploadTest" time="8.35"/>
+  <system-out><![CDATA[Loaded: schedule_production.pdf (1113 bytes)
+Loaded: invoice_production.pdf (1120 bytes)
+Loaded: purchase_order.pdf (1116 bytes)
+Loaded: customs_declaration.pdf (1138 bytes)
+17:31:44.371 [Test worker] INFO  com.hulft.mcp.MCPServer - Created job folder: jobs/2026/01/16/db013cf4-42bb-4a3a-8fb5-afd1c036b6f6
+17:31:44.409 [Test worker] INFO  com.hulft.mcp.MCPServer - Detected MIME type for schedule_production.pdf: application/pdf
+17:31:44.409 [Test worker] INFO  com.hulft.mcp.MCPServer - File schedule_production.pdf - Declared: pdf, Detected: pdf
+17:31:47.258 [Test worker] INFO  com.hulft.mcp.MCPServer - Textract extracted 151 characters from schedule_production.pdf
+17:31:47.261 [Test worker] INFO  com.hulft.mcp.MCPServer - Saved metadata to jobs/2026/01/16/db013cf4-42bb-4a3a-8fb5-afd1c036b6f6/meta.json
+17:31:47.261 [Test worker] INFO  com.hulft.mcp.MCPServer - Saved schedule_production.pdf to jobs/2026/01/16/db013cf4-42bb-4a3a-8fb5-afd1c036b6f6/schedule_production.pdf
+17:31:47.261 [Test worker] INFO  com.hulft.mcp.MCPServer - Created job folder: jobs/2026/01/16/d34f8cd3-e11a-43c7-b39c-ae8c5b56b9f5
+17:31:47.265 [Test worker] INFO  com.hulft.mcp.MCPServer - Detected MIME type for invoice_production.pdf: application/pdf
+17:31:47.265 [Test worker] INFO  com.hulft.mcp.MCPServer - File invoice_production.pdf - Declared: pdf, Detected: pdf
+17:31:49.160 [Test worker] INFO  com.hulft.mcp.MCPServer - Textract extracted 177 characters from invoice_production.pdf
+17:31:49.160 [Test worker] INFO  com.hulft.mcp.MCPServer - Saved metadata to jobs/2026/01/16/d34f8cd3-e11a-43c7-b39c-ae8c5b56b9f5/meta.json
+17:31:49.160 [Test worker] INFO  com.hulft.mcp.MCPServer - Saved invoice_production.pdf to jobs/2026/01/16/d34f8cd3-e11a-43c7-b39c-ae8c5b56b9f5/invoice_production.pdf
+17:31:49.161 [Test worker] INFO  com.hulft.mcp.MCPServer - Created job folder: jobs/2026/01/16/9bf3c7e5-927d-4bd1-94e9-15111a0dda2b
+17:31:49.162 [Test worker] INFO  com.hulft.mcp.MCPServer - Detected MIME type for purchase_order.pdf: application/pdf
+17:31:49.162 [Test worker] INFO  com.hulft.mcp.MCPServer - File purchase_order.pdf - Declared: pdf, Detected: pdf
+17:31:51.040 [Test worker] INFO  com.hulft.mcp.MCPServer - Textract extracted 180 characters from purchase_order.pdf
+17:31:51.041 [Test worker] INFO  com.hulft.mcp.MCPServer - Saved metadata to jobs/2026/01/16/9bf3c7e5-927d-4bd1-94e9-15111a0dda2b/meta.json
+17:31:51.041 [Test worker] INFO  com.hulft.mcp.MCPServer - Saved purchase_order.pdf to jobs/2026/01/16/9bf3c7e5-927d-4bd1-94e9-15111a0dda2b/purchase_order.pdf
+17:31:51.041 [Test worker] INFO  com.hulft.mcp.MCPServer - Created job folder: jobs/2026/01/16/e0cd9835-2704-4d15-971d-5f078920aa56
+17:31:51.042 [Test worker] INFO  com.hulft.mcp.MCPServer - Detected MIME type for customs_declaration.pdf: application/pdf
+17:31:51.042 [Test worker] INFO  com.hulft.mcp.MCPServer - File customs_declaration.pdf - Declared: pdf, Detected: pdf
+17:31:52.647 [Test worker] INFO  com.hulft.mcp.MCPServer - Textract extracted 191 characters from customs_declaration.pdf
+17:31:52.648 [Test worker] INFO  com.hulft.mcp.MCPServer - Saved metadata to jobs/2026/01/16/e0cd9835-2704-4d15-971d-5f078920aa56/meta.json
+17:31:52.648 [Test worker] INFO  com.hulft.mcp.MCPServer - Saved customs_declaration.pdf to jobs/2026/01/16/e0cd9835-2704-4d15-971d-5f078920aa56/customs_declaration.pdf
+
+=== Upload Result ===
+Files: 4 (separate jobs)
+
+✓ schedule_production.pdf (pdf)
+  Job ID: db013cf4-42bb-4a3a-8fb5-afd1c036b6f6
+  Size: 1113 bytes
+
+✓ invoice_production.pdf (pdf)
+  Job ID: d34f8cd3-e11a-43c7-b39c-ae8c5b56b9f5
+  Size: 1120 bytes
+
+✓ purchase_order.pdf (pdf)
+  Job ID: 9bf3c7e5-927d-4bd1-94e9-15111a0dda2b
+  Size: 1116 bytes
+
+✓ customs_declaration.pdf (pdf)
+  Job ID: e0cd9835-2704-4d15-971d-5f078920aa56
+  Size: 1138 bytes
+
+
+]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
