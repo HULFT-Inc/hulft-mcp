@@ -22,8 +22,10 @@ dependencies {
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.16.1'
     implementation 'software.amazon.awssdk:textract:2.20.26'
     implementation 'org.apache.tika:tika-core:2.9.1'
+    implementation 'org.apache.pdfbox:pdfbox:2.0.30'
     compileOnly 'org.projectlombok:lombok:1.18.30'
     annotationProcessor 'org.projectlombok:lombok:1.18.30'
+    testImplementation 'junit:junit:4.13.2'
 }
 
 application {

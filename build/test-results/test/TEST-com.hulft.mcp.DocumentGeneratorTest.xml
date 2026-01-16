@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.hulft.mcp.DocumentGeneratorTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-01-16T21:59:24" hostname="Copper.local" time="0.104">
+  <properties/>
+  <testcase name="generateCustomsDeclarationPDF" classname="com.hulft.mcp.DocumentGeneratorTest" time="0.1"/>
+  <testcase name="generateInvoiceProductionPDF" classname="com.hulft.mcp.DocumentGeneratorTest" time="0.001"/>
+  <testcase name="generatePurchaseOrderPDF" classname="com.hulft.mcp.DocumentGeneratorTest" time="0.001"/>
+  <testcase name="generateScheduleProductionPDF" classname="com.hulft.mcp.DocumentGeneratorTest" time="0.001"/>
+  <system-out><![CDATA[Generated: customs_declaration.pdf
+Generated: invoice_production.pdf
+Generated: purchase_order.pdf
+Generated: schedule_production.pdf
+]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
