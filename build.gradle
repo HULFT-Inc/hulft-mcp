@@ -1,0 +1,39 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'com.hulft'
+version = '1.0.0'
+
+java {
+    sourceCompatibility = '17'
+    targetCompatibility = '17'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'com.google.code.gson:gson:2.10.1'
+    implementation 'ch.qos.logback:logback-classic:1.4.14'
+    implementation 'io.javalin:javalin:5.6.3'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.16.1'
+    compileOnly 'org.projectlombok:lombok:1.18.30'
+    annotationProcessor 'org.projectlombok:lombok:1.18.30'
+}
+
+application {
+    mainClass = 'com.hulft.mcp.MCPServer'
+}
+
+jar {
+    manifest {
+        attributes 'Main-Class': 'com.hulft.mcp.MCPServer'
+    }
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}

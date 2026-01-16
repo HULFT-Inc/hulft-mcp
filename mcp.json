@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "hulft": {
+      "command": "java",
+      "args": ["-jar", "/Users/drewstoneburger/personal-repos/jf-power/hulft-mcp-server/build/libs/hulft-mcp-server-1.0.0.jar"],
+      "env": {
+        "AWS_PROFILE": "default",
+        "AWS_REGION": "us-east-1",
+        "LOG_LEVEL": "INFO"
+      }
+    }
+  }
+}
