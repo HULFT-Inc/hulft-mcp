@@ -284,6 +284,10 @@ public class MCPServer {
     private static String handleMultiFileUpload(List<Map<String, Object>> files) {
         try {
             StringBuilder result = new StringBuilder();
+            Map<String, Object> metadata = new java.util.HashMap<>();
+            metadata.put("uploadTime", java.time.Instant.now().toString());
+            metadata.put("fileCount", files.size());
+            List<Map<String, Object>> fileMetadata = new java.util.ArrayList<>();
             
             // Check if any file is an archive
             boolean hasArchive = files.stream()
@@ -293,6 +297,8 @@ public class MCPServer {
                 // All files go into one job folder
                 String jobId = java.util.UUID.randomUUID().toString();
                 String jobPath = createJobFolder(jobId);
+                metadata.put("jobId", jobId);
+                metadata.put("type", "archive");
                 result.append(String.format("Job ID: %s (archive extraction)\n", jobId));
                 result.append(String.format("Files: %d\n\n", files.size()));
                 
@@ -307,6 +313,12 @@ public class MCPServer {
                     String detectedType = detectFileType(fileBytes, filename);
                     log.info("File {} - Declared: {}, Detected: {}", filename, type, detectedType);
                     
+                    Map<String, Object> fileMeta = new java.util.HashMap<>();
+                    fileMeta.put("filename", filename);
+                    fileMeta.put("declaredType", type);
+                    fileMeta.put("detectedType", detectedType);
+                    fileMeta.put("size", fileBytes.length);
+                    
                     if ("archive".equals(type)) {
                         // TODO: Extract archive (zip, tar, etc.)
                         java.nio.file.Path archivePath = java.nio.file.Paths.get(jobPath, filename);
@@ -315,10 +327,20 @@ public class MCPServer {
                     } else {
                         java.nio.file.Path filePath = java.nio.file.Paths.get(jobPath, filename);
                         java.nio.file.Files.write(filePath, fileBytes);
+                        
+                        // Analyze with Textract
+                        String textractResult = analyzeWithTextract(fileBytes, filename);
+                        fileMeta.put("textractAnalysis", textractResult);
+                        
                         result.append(String.format("✓ %s (%s) - %d bytes\n", filename, type, fileBytes.length));
                     }
+                    
+                    fileMetadata.add(fileMeta);
                     log.info("Saved {} to {}", filename, jobPath);
                 }
+                
+                metadata.put("files", fileMetadata);
+                saveMetadata(jobPath, metadata);
                 result.append(String.format("\nPath: %s", jobPath));
             } else {
                 // Each file gets its own job folder
@@ -339,6 +361,21 @@ public class MCPServer {
                     
                     java.nio.file.Path filePath = java.nio.file.Paths.get(jobPath, filename);
                     java.nio.file.Files.write(filePath, fileBytes);
+                    
+                    // Analyze with Textract
+                    String textractResult = analyzeWithTextract(fileBytes, filename);
+                    
+                    // Save metadata for this job
+                    Map<String, Object> jobMeta = new java.util.HashMap<>();
+                    jobMeta.put("jobId", jobId);
+                    jobMeta.put("uploadTime", java.time.Instant.now().toString());
+                    jobMeta.put("type", "single");
+                    jobMeta.put("filename", filename);
+                    jobMeta.put("declaredType", type);
+                    jobMeta.put("detectedType", detectedType);
+                    jobMeta.put("size", fileBytes.length);
+                    jobMeta.put("textractAnalysis", textractResult);
+                    saveMetadata(jobPath, jobMeta);
                     
                     result.append(String.format("✓ %s (%s)\n  Job ID: %s\n  Size: %d bytes\n\n", 
                         filename, type, jobId, fileBytes.length));
@@ -466,23 +503,50 @@ public class MCPServer {
     }
     
     private static String analyzeWithTextract(byte[] fileBytes, String filename) {
-        // TODO: Implement AWS Textract analysis
-        // TextractClient textractClient = TextractClient.builder()
-        //     .region(Region.US_EAST_1)
-        //     .build();
-        //
-        // DetectDocumentTextRequest request = DetectDocumentTextRequest.builder()
-        //     .document(Document.builder()
-        //         .bytes(SdkBytes.fromByteArray(fileBytes))
-        //         .build())
-        //     .build();
-        //
-        // DetectDocumentTextResponse response = textractClient.detectDocumentText(request);
-        // return response.blocks().stream()
-        //     .filter(block -> block.blockType() == BlockType.LINE)
-        //     .map(Block::text)
-        //     .collect(Collectors.joining("\n"));
-        
-        return "TODO: AWS Textract analysis not yet implemented";
+        try {
+            software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider credentialsProvider = 
+                software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider.create("predev");
+            
+            software.amazon.awssdk.services.textract.TextractClient textractClient = 
+                software.amazon.awssdk.services.textract.TextractClient.builder()
+                    .region(software.amazon.awssdk.regions.Region.US_EAST_1)
+                    .credentialsProvider(credentialsProvider)
+                    .build();
+            
+            software.amazon.awssdk.services.textract.model.DetectDocumentTextRequest request = 
+                software.amazon.awssdk.services.textract.model.DetectDocumentTextRequest.builder()
+                    .document(software.amazon.awssdk.services.textract.model.Document.builder()
+                        .bytes(software.amazon.awssdk.core.SdkBytes.fromByteArray(fileBytes))
+                        .build())
+                    .build();
+            
+            software.amazon.awssdk.services.textract.model.DetectDocumentTextResponse response = 
+                textractClient.detectDocumentText(request);
+            
+            StringBuilder text = new StringBuilder();
+            for (software.amazon.awssdk.services.textract.model.Block block : response.blocks()) {
+                if (block.blockType() == software.amazon.awssdk.services.textract.model.BlockType.LINE) {
+                    text.append(block.text()).append("\n");
+                }
+            }
+            
+            log.info("Textract extracted {} characters from {}", text.length(), filename);
+            return text.toString();
+            
+        } catch (Exception e) {
+            log.error("Error with Textract analysis", e);
+            return "Textract analysis failed: " + e.getMessage();
+        }
+    }
+    
+    private static void saveMetadata(String jobPath, Map<String, Object> metadata) {
+        try {
+            java.nio.file.Path metaPath = java.nio.file.Paths.get(jobPath, "meta.json");
+            String json = gson.toJson(metadata);
+            java.nio.file.Files.writeString(metaPath, json);
+            log.info("Saved metadata to {}", metaPath);
+        } catch (Exception e) {
+            log.error("Error saving metadata", e);
+        }
     }
 }
