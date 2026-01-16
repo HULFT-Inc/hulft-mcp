@@ -39,3 +39,35 @@ curl -s -X POST "$URL/mcp" \
   -H "Content-Type: application/json" \
   -H "ngrok-skip-browser-warning: true" \
   -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"echo","arguments":{"text":"Hello MCP!"}}}' | jq .
+echo
+
+echo "6. List resources:"
+curl -s -X POST "$URL/mcp" \
+  -H "Accept: application/json" \
+  -H "Content-Type: application/json" \
+  -H "ngrok-skip-browser-warning: true" \
+  -d '{"jsonrpc":"2.0","id":4,"method":"resources/list"}' | jq .
+echo
+
+echo "7. Read resource:"
+curl -s -X POST "$URL/mcp" \
+  -H "Accept: application/json" \
+  -H "Content-Type: application/json" \
+  -H "ngrok-skip-browser-warning: true" \
+  -d '{"jsonrpc":"2.0","id":5,"method":"resources/read","params":{"uri":"file:///example.txt"}}' | jq .
+echo
+
+echo "8. List prompts:"
+curl -s -X POST "$URL/mcp" \
+  -H "Accept: application/json" \
+  -H "Content-Type: application/json" \
+  -H "ngrok-skip-browser-warning: true" \
+  -d '{"jsonrpc":"2.0","id":6,"method":"prompts/list"}' | jq .
+echo
+
+echo "9. Get prompt:"
+curl -s -X POST "$URL/mcp" \
+  -H "Accept: application/json" \
+  -H "Content-Type: application/json" \
+  -H "ngrok-skip-browser-warning: true" \
+  -d '{"jsonrpc":"2.0","id":7,"method":"prompts/get","params":{"name":"code-review","arguments":{"code":"function test() { return 1; }"}}}' | jq .

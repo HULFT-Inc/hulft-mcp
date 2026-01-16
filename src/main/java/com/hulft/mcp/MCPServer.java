@@ -82,8 +82,12 @@ public class MCPServer {
                     "jsonrpc", "2.0",
                     "id", id,
                     "result", Map.of(
-                        "protocolVersion", clientProtocol, // Match client's protocol version
-                        "capabilities", Map.of("tools", Map.of()),
+                        "protocolVersion", clientProtocol,
+                        "capabilities", Map.of(
+                            "tools", Map.of(),
+                            "resources", Map.of(),
+                            "prompts", Map.of()
+                        ),
                         "serverInfo", Map.of(
                             "name", "hulft-mcp",
                             "version", "1.0.0"
@@ -121,6 +125,77 @@ public class MCPServer {
                             "type", "text",
                             "text", "Echo: " + arguments.get("text")
                         ))
+                    )
+                );
+            }
+            case "resources/list" -> Map.of(
+                "jsonrpc", "2.0",
+                "id", id,
+                "result", Map.of(
+                    "resources", List.of(
+                        Map.of(
+                            "uri", "file:///example.txt",
+                            "name", "Example File",
+                            "description", "An example text resource",
+                            "mimeType", "text/plain"
+                        )
+                    )
+                )
+            );
+            case "resources/read" -> {
+                Map<String, Object> params = (Map<String, Object>) request.get("params");
+                String uri = (String) params.get("uri");
+                yield Map.of(
+                    "jsonrpc", "2.0",
+                    "id", id,
+                    "result", Map.of(
+                        "contents", List.of(Map.of(
+                            "uri", uri,
+                            "mimeType", "text/plain",
+                            "text", "This is example content from: " + uri
+                        ))
+                    )
+                );
+            }
+            case "prompts/list" -> Map.of(
+                "jsonrpc", "2.0",
+                "id", id,
+                "result", Map.of(
+                    "prompts", List.of(
+                        Map.of(
+                            "name", "code-review",
+                            "description", "Review code for best practices",
+                            "arguments", List.of(
+                                Map.of(
+                                    "name", "code",
+                                    "description", "Code to review",
+                                    "required", true
+                                )
+                            )
+                        )
+                    )
+                )
+            );
+            case "prompts/get" -> {
+                Map<String, Object> params = (Map<String, Object>) request.get("params");
+                String name = (String) params.get("name");
+                Map<String, Object> arguments = (Map<String, Object>) params.get("arguments");
+                String code = (String) arguments.get("code");
+                
+                yield Map.of(
+                    "jsonrpc", "2.0",
+                    "id", id,
+                    "result", Map.of(
+                        "description", "Code review prompt",
+                        "messages", List.of(
+                            Map.of(
+                                "role", "user",
+                                "content", Map.of(
+                                    "type", "text",
+                                    "text", "Please review this code:\n\n" + code
+                                )
+                            )
+                        )
                     )
                 );
             }
