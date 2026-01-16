@@ -651,8 +651,13 @@ public class MCPServer {
         
         String prompt = String.format(
             "Classify this document as exactly one of: SCHEDULE_PRODUCTION, INVOICE_PRODUCTION, PURCHASE_ORDER, CUSTOMS_DECLARATION\n\n" +
-            "Respond with ONLY the classification and confidence (0-1) in JSON format: {\"type\": \"XXX\", \"confidence\": 0.95}\n\n" +
-            "Document text:\n%s",
+            "Guidelines:\n" +
+            "- INVOICE_PRODUCTION: Contains invoice number, customer, items, amounts, total\n" +
+            "- PURCHASE_ORDER: Contains PO number, vendor, items to purchase, delivery info\n" +
+            "- SCHEDULE_PRODUCTION: Contains production schedule, quantities, dates, line assignments\n" +
+            "- CUSTOMS_DECLARATION: Contains customs/declaration info, origin, destination, HS codes\n\n" +
+            "Respond with ONLY JSON: {\"type\": \"XXX\", \"confidence\": 0.95}\n\n" +
+            "Document:\n%s",
             text.substring(0, Math.min(2000, text.length()))
         );
         

@@ -137,14 +137,18 @@ public class DocumentGeneratorTest {
                 "PO Number: PO-2026-BULK-001",
                 "Date: January 16, 2026",
                 "Vendor: International Supplies Inc",
-                "Delivery Address: Warehouse 5, 789 Logistics Blvd"
+                "Delivery Address: Warehouse 5, 789 Logistics Blvd",
+                "",
+                "Terms: Net 30 Days"
             },
             new String[]{
-                "Line Items (Page 2):",
+                "Line Items (Continued):",
                 "Item 1: Bearings (SKU: BRG-001) - 10,000 units @ $2.50",
                 "Item 2: Gaskets (SKU: GSK-045) - 5,000 units @ $1.25",
                 "Item 3: Bolts M8 (SKU: BLT-M8) - 50,000 units @ $0.15",
-                "Item 4: Washers (SKU: WSH-STD) - 50,000 units @ $0.05"
+                "Item 4: Washers (SKU: WSH-STD) - 50,000 units @ $0.05",
+                "",
+                "Total: $38,250.00"
             }
         );
         savePDF("test-pdfs/multipage_po.pdf", pdf);
