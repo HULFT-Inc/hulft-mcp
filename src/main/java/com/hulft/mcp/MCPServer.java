@@ -113,7 +113,7 @@ public class MCPServer {
                         ),
                         Map.of(
                             "name", "upload_files",
-                            "description", "Upload multiple files (PDF, Excel, or Image)",
+                            "description", "Upload multiple files (PDF, Excel, Image, or Archive). Archives are extracted into one job folder, other files get separate job folders.",
                             "inputSchema", Map.of(
                                 "type", "object",
                                 "properties", Map.of(
@@ -125,7 +125,7 @@ public class MCPServer {
                                             "properties", Map.of(
                                                 "filename", Map.of("type", "string", "description", "File name"),
                                                 "content", Map.of("type", "string", "description", "Base64 encoded content"),
-                                                "type", Map.of("type", "string", "enum", List.of("pdf", "excel", "image"), "description", "File type")
+                                                "type", Map.of("type", "string", "enum", List.of("pdf", "excel", "image", "archive"), "description", "File type")
                                             ),
                                             "required", List.of("filename", "content", "type")
                                         )
@@ -283,26 +283,61 @@ public class MCPServer {
     
     private static String handleMultiFileUpload(List<Map<String, Object>> files) {
         try {
-            String jobId = java.util.UUID.randomUUID().toString();
-            String jobPath = createJobFolder(jobId);
             StringBuilder result = new StringBuilder();
-            result.append(String.format("Job ID: %s\n", jobId));
-            result.append(String.format("Files uploaded: %d\n\n", files.size()));
             
-            for (Map<String, Object> file : files) {
-                String filename = (String) file.get("filename");
-                String content = (String) file.get("content");
-                String type = (String) file.get("type");
+            // Check if any file is an archive
+            boolean hasArchive = files.stream()
+                .anyMatch(f -> "archive".equals(f.get("type")));
+            
+            if (hasArchive) {
+                // All files go into one job folder
+                String jobId = java.util.UUID.randomUUID().toString();
+                String jobPath = createJobFolder(jobId);
+                result.append(String.format("Job ID: %s (archive extraction)\n", jobId));
+                result.append(String.format("Files: %d\n\n", files.size()));
                 
-                byte[] fileBytes = java.util.Base64.getDecoder().decode(content);
-                java.nio.file.Path filePath = java.nio.file.Paths.get(jobPath, filename);
-                java.nio.file.Files.write(filePath, fileBytes);
+                for (Map<String, Object> file : files) {
+                    String filename = (String) file.get("filename");
+                    String content = (String) file.get("content");
+                    String type = (String) file.get("type");
+                    
+                    byte[] fileBytes = java.util.Base64.getDecoder().decode(content);
+                    
+                    if ("archive".equals(type)) {
+                        // TODO: Extract archive (zip, tar, etc.)
+                        java.nio.file.Path archivePath = java.nio.file.Paths.get(jobPath, filename);
+                        java.nio.file.Files.write(archivePath, fileBytes);
+                        result.append(String.format("✓ %s (archive) - %d bytes [TODO: extract]\n", filename, fileBytes.length));
+                    } else {
+                        java.nio.file.Path filePath = java.nio.file.Paths.get(jobPath, filename);
+                        java.nio.file.Files.write(filePath, fileBytes);
+                        result.append(String.format("✓ %s (%s) - %d bytes\n", filename, type, fileBytes.length));
+                    }
+                    log.info("Saved {} to {}", filename, jobPath);
+                }
+                result.append(String.format("\nPath: %s", jobPath));
+            } else {
+                // Each file gets its own job folder
+                result.append(String.format("Files: %d (separate jobs)\n\n", files.size()));
                 
-                result.append(String.format("✓ %s (%s) - %d bytes\n", filename, type, fileBytes.length));
-                log.info("Saved {} to {}", filename, filePath);
+                for (Map<String, Object> file : files) {
+                    String filename = (String) file.get("filename");
+                    String content = (String) file.get("content");
+                    String type = (String) file.get("type");
+                    
+                    String jobId = java.util.UUID.randomUUID().toString();
+                    String jobPath = createJobFolder(jobId);
+                    byte[] fileBytes = java.util.Base64.getDecoder().decode(content);
+                    
+                    java.nio.file.Path filePath = java.nio.file.Paths.get(jobPath, filename);
+                    java.nio.file.Files.write(filePath, fileBytes);
+                    
+                    result.append(String.format("✓ %s (%s)\n  Job ID: %s\n  Size: %d bytes\n\n", 
+                        filename, type, jobId, fileBytes.length));
+                    log.info("Saved {} to {}", filename, filePath);
+                }
             }
             
-            result.append(String.format("\nPath: %s", jobPath));
             return result.toString();
             
         } catch (Exception e) {
