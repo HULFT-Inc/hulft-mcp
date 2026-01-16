@@ -320,10 +320,13 @@ public class MCPServer {
                     fileMeta.put("size", fileBytes.length);
                     
                     if ("archive".equals(type)) {
-                        // TODO: Extract archive (zip, tar, etc.)
                         java.nio.file.Path archivePath = java.nio.file.Paths.get(jobPath, filename);
                         java.nio.file.Files.write(archivePath, fileBytes);
-                        result.append(String.format("✓ %s (archive) - %d bytes [TODO: extract]\n", filename, fileBytes.length));
+                        
+                        // Extract archive
+                        int extractedCount = extractArchive(archivePath.toString(), jobPath);
+                        result.append(String.format("✓ %s (archive) - %d bytes - extracted %d files\n", 
+                            filename, fileBytes.length, extractedCount));
                     } else {
                         java.nio.file.Path filePath = java.nio.file.Paths.get(jobPath, filename);
                         java.nio.file.Files.write(filePath, fileBytes);
@@ -378,7 +381,10 @@ public class MCPServer {
                     
                     // Classify document
                     Map<String, Object> classification = classifyDocument(textractResult);
+                    Map<String, Object> consensus = getConsensusClassification(classification);
+                    
                     jobMeta.put("classification", classification);
+                    jobMeta.put("finalClassification", consensus);
                     
                     saveMetadata(jobPath, jobMeta);
                     
@@ -675,5 +681,93 @@ public class MCPServer {
         
         // Parse Claude's JSON response
         return gson.fromJson(claudeResponse, Map.class);
+    }
+    
+    private static int extractArchive(String archivePath, String destPath) {
+        try {
+            java.nio.file.Path archive = java.nio.file.Paths.get(archivePath);
+            java.nio.file.Path dest = java.nio.file.Paths.get(destPath);
+            
+            if (archivePath.endsWith(".zip")) {
+                return extractZip(archive, dest);
+            } else if (archivePath.endsWith(".tar") || archivePath.endsWith(".tar.gz")) {
+                return extractTar(archive, dest);
+            }
+            
+            log.warn("Unsupported archive format: {}", archivePath);
+            return 0;
+        } catch (Exception e) {
+            log.error("Error extracting archive", e);
+            return 0;
+        }
+    }
+    
+    private static int extractZip(java.nio.file.Path zipFile, java.nio.file.Path destDir) throws Exception {
+        int count = 0;
+        try (java.util.zip.ZipInputStream zis = new java.util.zip.ZipInputStream(
+                java.nio.file.Files.newInputStream(zipFile))) {
+            java.util.zip.ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                if (!entry.isDirectory()) {
+                    java.nio.file.Path filePath = destDir.resolve(entry.getName());
+                    java.nio.file.Files.createDirectories(filePath.getParent());
+                    java.nio.file.Files.copy(zis, filePath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    count++;
+                    log.info("Extracted: {}", entry.getName());
+                }
+                zis.closeEntry();
+            }
+        }
+        return count;
+    }
+    
+    private static int extractTar(java.nio.file.Path tarFile, java.nio.file.Path destDir) throws Exception {
+        // TODO: Implement tar extraction using Apache Commons Compress
+        log.warn("TAR extraction not yet implemented");
+        return 0;
+    }
+    
+    private static Map<String, Object> getConsensusClassification(Map<String, Object> classification) {
+        // Extract results from each method
+        Map<String, Object> regex = (Map<String, Object>) classification.get("regex");
+        Map<String, Object> comprehend = (Map<String, Object>) classification.getOrDefault("comprehend", Map.of());
+        Map<String, Object> bedrock = (Map<String, Object>) classification.getOrDefault("bedrock", Map.of());
+        
+        String regexType = (String) regex.get("type");
+        double regexConf = ((Number) regex.get("confidence")).doubleValue();
+        
+        String comprehendType = (String) comprehend.getOrDefault("type", "UNKNOWN");
+        double comprehendConf = comprehend.containsKey("confidence") ? 
+            ((Number) comprehend.get("confidence")).doubleValue() : 0.0;
+        
+        String bedrockType = (String) bedrock.getOrDefault("type", "UNKNOWN");
+        double bedrockConf = bedrock.containsKey("confidence") ? 
+            ((Number) bedrock.get("confidence")).doubleValue() : 0.0;
+        
+        // Voting: if 2+ agree, use that
+        if (regexType.equals(comprehendType) || regexType.equals(bedrockType)) {
+            return Map.of(
+                "type", regexType,
+                "confidence", Math.max(regexConf, Math.max(comprehendConf, bedrockConf)),
+                "method", "consensus"
+            );
+        }
+        
+        if (comprehendType.equals(bedrockType) && !comprehendType.equals("UNKNOWN")) {
+            return Map.of(
+                "type", comprehendType,
+                "confidence", (comprehendConf + bedrockConf) / 2,
+                "method", "consensus"
+            );
+        }
+        
+        // No consensus - use highest confidence
+        if (regexConf >= comprehendConf && regexConf >= bedrockConf) {
+            return Map.of("type", regexType, "confidence", regexConf, "method", "regex");
+        } else if (bedrockConf >= comprehendConf) {
+            return Map.of("type", bedrockType, "confidence", bedrockConf, "method", "bedrock");
+        } else {
+            return Map.of("type", comprehendType, "confidence", comprehendConf, "method", "comprehend");
+        }
     }
 }
