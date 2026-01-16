@@ -112,14 +112,39 @@ public class MCPServer {
                             )
                         ),
                         Map.of(
-                            "name", "read_resource",
-                            "description", "Read a resource by URI",
+                            "name", "upload_pdf",
+                            "description", "Upload and process a PDF file",
                             "inputSchema", Map.of(
                                 "type", "object",
                                 "properties", Map.of(
-                                    "uri", Map.of("type", "string", "description", "Resource URI (e.g., file:///example.txt)")
+                                    "filename", Map.of("type", "string", "description", "Name of the PDF file"),
+                                    "content", Map.of("type", "string", "description", "Base64 encoded PDF content")
                                 ),
-                                "required", List.of("uri")
+                                "required", List.of("filename", "content")
+                            )
+                        ),
+                        Map.of(
+                            "name", "upload_excel",
+                            "description", "Upload and process an Excel file",
+                            "inputSchema", Map.of(
+                                "type", "object",
+                                "properties", Map.of(
+                                    "filename", Map.of("type", "string", "description", "Name of the Excel file"),
+                                    "content", Map.of("type", "string", "description", "Base64 encoded Excel content")
+                                ),
+                                "required", List.of("filename", "content")
+                            )
+                        ),
+                        Map.of(
+                            "name", "upload_image",
+                            "description", "Upload and process an image file",
+                            "inputSchema", Map.of(
+                                "type", "object",
+                                "properties", Map.of(
+                                    "filename", Map.of("type", "string", "description", "Name of the image file"),
+                                    "content", Map.of("type", "string", "description", "Base64 encoded image content")
+                                ),
+                                "required", List.of("filename", "content")
                             )
                         ),
                         Map.of(
@@ -128,6 +153,17 @@ public class MCPServer {
                             "inputSchema", Map.of(
                                 "type", "object",
                                 "properties", Map.of()
+                            )
+                        ),
+                        Map.of(
+                            "name", "read_resource",
+                            "description", "Read a resource by URI",
+                            "inputSchema", Map.of(
+                                "type", "object",
+                                "properties", Map.of(
+                                    "uri", Map.of("type", "string", "description", "Resource URI (e.g., file:///example.txt)")
+                                ),
+                                "required", List.of("uri")
                             )
                         ),
                         Map.of(
@@ -161,6 +197,9 @@ public class MCPServer {
                         String code = (String) arguments.get("code");
                         yield "Code Review Prompt:\nPlease review this code:\n\n" + code;
                     }
+                    case "upload_pdf" -> handlePdfUpload((String) arguments.get("filename"), (String) arguments.get("content"));
+                    case "upload_excel" -> handleExcelUpload((String) arguments.get("filename"), (String) arguments.get("content"));
+                    case "upload_image" -> handleImageUpload((String) arguments.get("filename"), (String) arguments.get("content"));
                     default -> "Unknown tool: " + toolName;
                 };
                 
@@ -255,5 +294,66 @@ public class MCPServer {
                 )
             );
         };
+    }
+    
+    private static String handlePdfUpload(String filename, String base64Content) {
+        log.info("PDF upload: {} ({} bytes base64)", filename, base64Content.length());
+        
+        // TODO: Decode base64 and process PDF
+        // byte[] pdfBytes = Base64.getDecoder().decode(base64Content);
+        // 
+        // TODO: Extract text from PDF using Apache PDFBox or similar
+        // PDDocument document = PDDocument.load(pdfBytes);
+        // PDFTextStripper stripper = new PDFTextStripper();
+        // String text = stripper.getText(document);
+        //
+        // TODO: Store PDF in database or file system
+        // TODO: Index PDF content for search
+        // TODO: Extract metadata (author, creation date, etc.)
+        
+        return String.format("PDF uploaded: %s\nSize: %d bytes (base64)\n\nTODO: Implement PDF processing", 
+            filename, base64Content.length());
+    }
+    
+    private static String handleExcelUpload(String filename, String base64Content) {
+        log.info("Excel upload: {} ({} bytes base64)", filename, base64Content.length());
+        
+        // TODO: Decode base64 and process Excel
+        // byte[] excelBytes = Base64.getDecoder().decode(base64Content);
+        //
+        // TODO: Parse Excel using Apache POI
+        // Workbook workbook = WorkbookFactory.create(new ByteArrayInputStream(excelBytes));
+        // Sheet sheet = workbook.getSheetAt(0);
+        // for (Row row : sheet) {
+        //     for (Cell cell : row) {
+        //         // Process cells
+        //     }
+        // }
+        //
+        // TODO: Convert to JSON or CSV
+        // TODO: Store data in database
+        // TODO: Generate summary statistics
+        
+        return String.format("Excel uploaded: %s\nSize: %d bytes (base64)\n\nTODO: Implement Excel processing", 
+            filename, base64Content.length());
+    }
+    
+    private static String handleImageUpload(String filename, String base64Content) {
+        log.info("Image upload: {} ({} bytes base64)", filename, base64Content.length());
+        
+        // TODO: Decode base64 and process image
+        // byte[] imageBytes = Base64.getDecoder().decode(base64Content);
+        //
+        // TODO: Validate image format
+        // BufferedImage image = ImageIO.read(new ByteArrayInputStream(imageBytes));
+        //
+        // TODO: Resize/optimize image
+        // TODO: Extract EXIF metadata
+        // TODO: Store in S3 or local storage
+        // TODO: Generate thumbnail
+        // TODO: Run image recognition/OCR if needed
+        
+        return String.format("Image uploaded: %s\nSize: %d bytes (base64)\n\nTODO: Implement image processing", 
+            filename, base64Content.length());
     }
 }
