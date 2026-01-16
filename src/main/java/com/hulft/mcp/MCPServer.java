@@ -303,6 +303,10 @@ public class MCPServer {
                     
                     byte[] fileBytes = java.util.Base64.getDecoder().decode(content);
                     
+                    // Detect actual file type
+                    String detectedType = detectFileType(fileBytes, filename);
+                    log.info("File {} - Declared: {}, Detected: {}", filename, type, detectedType);
+                    
                     if ("archive".equals(type)) {
                         // TODO: Extract archive (zip, tar, etc.)
                         java.nio.file.Path archivePath = java.nio.file.Paths.get(jobPath, filename);
@@ -328,6 +332,10 @@ public class MCPServer {
                     String jobId = java.util.UUID.randomUUID().toString();
                     String jobPath = createJobFolder(jobId);
                     byte[] fileBytes = java.util.Base64.getDecoder().decode(content);
+                    
+                    // Detect actual file type
+                    String detectedType = detectFileType(fileBytes, filename);
+                    log.info("File {} - Declared: {}, Detected: {}", filename, type, detectedType);
                     
                     java.nio.file.Path filePath = java.nio.file.Paths.get(jobPath, filename);
                     java.nio.file.Files.write(filePath, fileBytes);
@@ -434,5 +442,47 @@ public class MCPServer {
         
         log.info("Created job folder: {}", jobPath);
         return jobPath;
+    }
+    
+    private static String detectFileType(byte[] fileBytes, String filename) {
+        try {
+            // Use Apache Tika to detect MIME type from content
+            org.apache.tika.Tika tika = new org.apache.tika.Tika();
+            String mimeType = tika.detect(fileBytes);
+            
+            log.info("Detected MIME type for {}: {}", filename, mimeType);
+            
+            // Map MIME type to our file types
+            if (mimeType.contains("pdf")) return "pdf";
+            if (mimeType.contains("spreadsheet") || mimeType.contains("excel")) return "excel";
+            if (mimeType.contains("image")) return "image";
+            if (mimeType.contains("zip") || mimeType.contains("tar") || mimeType.contains("archive")) return "archive";
+            
+            return mimeType;
+        } catch (Exception e) {
+            log.error("Error detecting file type", e);
+            return "unknown";
+        }
+    }
+    
+    private static String analyzeWithTextract(byte[] fileBytes, String filename) {
+        // TODO: Implement AWS Textract analysis
+        // TextractClient textractClient = TextractClient.builder()
+        //     .region(Region.US_EAST_1)
+        //     .build();
+        //
+        // DetectDocumentTextRequest request = DetectDocumentTextRequest.builder()
+        //     .document(Document.builder()
+        //         .bytes(SdkBytes.fromByteArray(fileBytes))
+        //         .build())
+        //     .build();
+        //
+        // DetectDocumentTextResponse response = textractClient.detectDocumentText(request);
+        // return response.blocks().stream()
+        //     .filter(block -> block.blockType() == BlockType.LINE)
+        //     .map(Block::text)
+        //     .collect(Collectors.joining("\n"));
+        
+        return "TODO: AWS Textract analysis not yet implemented";
     }
 }
