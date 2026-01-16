@@ -375,6 +375,11 @@ public class MCPServer {
                     jobMeta.put("detectedType", detectedType);
                     jobMeta.put("size", fileBytes.length);
                     jobMeta.put("textractAnalysis", textractResult);
+                    
+                    // Classify document
+                    Map<String, Object> classification = classifyDocument(textractResult);
+                    jobMeta.put("classification", classification);
+                    
                     saveMetadata(jobPath, jobMeta);
                     
                     result.append(String.format("✓ %s (%s)\n  Job ID: %s\n  Size: %d bytes\n\n", 
@@ -530,8 +535,9 @@ public class MCPServer {
                 }
             }
             
-            log.info("Textract extracted {} characters from {}", text.length(), filename);
-            return text.toString();
+            String extractedText = text.toString();
+            log.info("Textract extracted {} characters from {}", extractedText.length(), filename);
+            return extractedText;
             
         } catch (Exception e) {
             log.error("Error with Textract analysis", e);
@@ -548,5 +554,126 @@ public class MCPServer {
         } catch (Exception e) {
             log.error("Error saving metadata", e);
         }
+    }
+    
+    private static Map<String, Object> classifyDocument(String textractText) {
+        Map<String, Object> classification = new java.util.HashMap<>();
+        
+        // Method 1: Regex extraction
+        String regexType = extractPurposeCode(textractText);
+        classification.put("regex", Map.of("type", regexType, "confidence", regexType.equals("UNKNOWN") ? 0.0 : 1.0));
+        
+        // Method 2: AWS Comprehend
+        try {
+            Map<String, Object> comprehendResult = classifyWithComprehend(textractText);
+            classification.put("comprehend", comprehendResult);
+        } catch (Exception e) {
+            log.error("Comprehend classification failed", e);
+            classification.put("comprehend", Map.of("error", e.getMessage()));
+        }
+        
+        // Method 3: AWS Bedrock (Claude)
+        try {
+            Map<String, Object> bedrockResult = classifyWithBedrock(textractText);
+            classification.put("bedrock", bedrockResult);
+        } catch (Exception e) {
+            log.error("Bedrock classification failed", e);
+            classification.put("bedrock", Map.of("error", e.getMessage()));
+        }
+        
+        return classification;
+    }
+    
+    private static String extractPurposeCode(String text) {
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("Purpose:\\s*([A-Z_]+)");
+        java.util.regex.Matcher matcher = pattern.matcher(text);
+        return matcher.find() ? matcher.group(1) : "UNKNOWN";
+    }
+    
+    private static Map<String, Object> classifyWithComprehend(String text) {
+        software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider credentialsProvider = 
+            software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider.create("predev");
+        
+        software.amazon.awssdk.services.comprehend.ComprehendClient comprehend = 
+            software.amazon.awssdk.services.comprehend.ComprehendClient.builder()
+                .region(software.amazon.awssdk.regions.Region.US_EAST_1)
+                .credentialsProvider(credentialsProvider)
+                .build();
+        
+        // Detect entities to help classify
+        software.amazon.awssdk.services.comprehend.model.DetectEntitiesRequest request = 
+            software.amazon.awssdk.services.comprehend.model.DetectEntitiesRequest.builder()
+                .text(text.substring(0, Math.min(5000, text.length())))
+                .languageCode("en")
+                .build();
+        
+        software.amazon.awssdk.services.comprehend.model.DetectEntitiesResponse response = 
+            comprehend.detectEntities(request);
+        
+        // Simple heuristic based on entities
+        String docType = "UNKNOWN";
+        double confidence = 0.0;
+        
+        for (software.amazon.awssdk.services.comprehend.model.Entity entity : response.entities()) {
+            if (entity.text().contains("Invoice") || entity.text().contains("INV-")) {
+                docType = "INVOICE_PRODUCTION";
+                confidence = entity.score();
+            } else if (entity.text().contains("PO-") || entity.text().contains("Purchase")) {
+                docType = "PURCHASE_ORDER";
+                confidence = entity.score();
+            } else if (entity.text().contains("Schedule") || entity.text().contains("Production")) {
+                docType = "SCHEDULE_PRODUCTION";
+                confidence = entity.score();
+            } else if (entity.text().contains("Customs") || entity.text().contains("Declaration")) {
+                docType = "CUSTOMS_DECLARATION";
+                confidence = entity.score();
+            }
+        }
+        
+        return Map.of("type", docType, "confidence", confidence);
+    }
+    
+    private static Map<String, Object> classifyWithBedrock(String text) {
+        software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider credentialsProvider = 
+            software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider.create("predev");
+        
+        software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient bedrock = 
+            software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient.builder()
+                .region(software.amazon.awssdk.regions.Region.US_EAST_1)
+                .credentialsProvider(credentialsProvider)
+                .build();
+        
+        String prompt = String.format(
+            "Classify this document as exactly one of: SCHEDULE_PRODUCTION, INVOICE_PRODUCTION, PURCHASE_ORDER, CUSTOMS_DECLARATION\n\n" +
+            "Respond with ONLY the classification and confidence (0-1) in JSON format: {\"type\": \"XXX\", \"confidence\": 0.95}\n\n" +
+            "Document text:\n%s",
+            text.substring(0, Math.min(2000, text.length()))
+        );
+        
+        String requestBody = gson.toJson(Map.of(
+            "anthropic_version", "bedrock-2023-05-31",
+            "max_tokens", 100,
+            "messages", List.of(Map.of(
+                "role", "user",
+                "content", prompt
+            ))
+        ));
+        
+        software.amazon.awssdk.services.bedrockruntime.model.InvokeModelRequest request = 
+            software.amazon.awssdk.services.bedrockruntime.model.InvokeModelRequest.builder()
+                .modelId("anthropic.claude-3-haiku-20240307-v1:0")
+                .body(software.amazon.awssdk.core.SdkBytes.fromUtf8String(requestBody))
+                .build();
+        
+        software.amazon.awssdk.services.bedrockruntime.model.InvokeModelResponse response = 
+            bedrock.invokeModel(request);
+        
+        String responseBody = response.body().asUtf8String();
+        Map<String, Object> responseJson = gson.fromJson(responseBody, Map.class);
+        List<Map<String, Object>> content = (List<Map<String, Object>>) responseJson.get("content");
+        String claudeResponse = (String) content.get(0).get("text");
+        
+        // Parse Claude's JSON response
+        return gson.fromJson(claudeResponse, Map.class);
     }
 }
