@@ -93,7 +93,9 @@ public class MCPServer {
         
         ctx.contentType("application/json");
         ctx.json(response);
-        log.info("Response: {}", gson.toJson(response));
+        if (log.isInfoEnabled()) {
+            log.info("Response: {}", gson.toJson(response));
+        }
     }
 
     private static void handleGet(Context ctx) {
@@ -282,7 +284,7 @@ public class MCPServer {
                                     String result = handleMultiFileUpload(files);
                                     status.result = Map.of("text", result);
                                     status.status = "completed";
-                                } catch (Exception e) {
+                                } catch (Exception e) { // NOPMD - Catch all for async error handling
                                     status.error = e.getMessage();
                                     status.status = "failed";
                                 }
@@ -584,6 +586,7 @@ public class MCPServer {
         }
     }
     
+    @SuppressWarnings("PMD.GuardLogStatement") // Simple log, not expensive
     private static String handlePdfUpload(String filename, String base64Content) {
         log.info("PDF upload: {} ({} bytes base64)", filename, base64Content.length());
         
@@ -720,8 +723,9 @@ public class MCPServer {
             }
             
             // Calculate average confidence
-            float avgConfidence = confidences.isEmpty() ? 0 : 
-                (float) confidences.stream().mapToDouble(Float::doubleValue).average().orElse(0);
+            float avgConfidence = confidences.isEmpty()
+                ? 0
+                : (float) confidences.stream().mapToDouble(Float::doubleValue).average().orElse(0);
             
             String extractedText = text.toString();
             log.info("Textract extracted {} characters from {} (avg confidence: {:.2f}%)", 
@@ -1145,16 +1149,16 @@ public class MCPServer {
             // Extract JSON from response (handle markdown code blocks)
             extractedText = extractedText.trim();
             if (extractedText.startsWith("```")) {
-                int start = extractedText.indexOf("{");
-                int end = extractedText.lastIndexOf("}");
+                int start = extractedText.indexOf('{');
+                int end = extractedText.lastIndexOf('}');
                 if (start >= 0 && end > start) {
                     extractedText = extractedText.substring(start, end + 1);
                 }
             }
             
             // Find first { and last }
-            int jsonStart = extractedText.indexOf("{");
-            int jsonEnd = extractedText.lastIndexOf("}");
+            int jsonStart = extractedText.indexOf('{');
+            int jsonEnd = extractedText.lastIndexOf('}');
             if (jsonStart >= 0 && jsonEnd > jsonStart) {
                 extractedText = extractedText.substring(jsonStart, jsonEnd + 1);
             }
