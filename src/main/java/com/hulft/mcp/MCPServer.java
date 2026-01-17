@@ -8,7 +8,13 @@ import java.util.*;
 import java.util.concurrent.*;
 
 @Slf4j
-@SuppressWarnings({"PMD.GodClass", "PMD.TooManyMethods", "PMD.CyclomaticComplexity", "PMD.ExcessiveClassLength"})
+@SuppressWarnings({
+    "PMD.GodClass",
+    "PMD.TooManyMethods",
+    "PMD.CyclomaticComplexity",
+    "PMD.ExcessiveClassLength",
+    "PMD.AvoidDuplicateLiterals" // JSON-RPC protocol strings
+})
 public class MCPServer {
     @SuppressWarnings("PMD.FieldNamingConventions") // Object instances, not primitive constants
     private static final Gson gson = new Gson();
@@ -45,6 +51,7 @@ public class MCPServer {
     @SuppressWarnings("PMD.FieldNamingConventions")
     private static final Map<String, String> customSchemas = new ConcurrentHashMap<>();
     
+    @SuppressWarnings("PMD.FieldNamingConventions") // ThreadLocal, not a constant
     private static final ThreadLocal<Float> ocrConfidence = new ThreadLocal<>();
     
     static class JobStatus {
@@ -53,6 +60,7 @@ public class MCPServer {
         String error;
     }
 
+    @SuppressWarnings("PMD.CloseResource") // Server runs until shutdown
     public static void main(String[] args) {
         log.info("Starting MCP Server");
         
@@ -70,7 +78,7 @@ public class MCPServer {
         
         log.info("Authorization header: {}", auth != null ? "Bearer ***" : "none");
         
-        if (accept == null || (!accept.contains("application/json") && !accept.contains("text/event-stream"))) {
+        if (accept == null || !accept.contains("application/json") && !accept.contains("text/event-stream")) {
             ctx.status(400).result("Accept header must include application/json or text/event-stream");
             return;
         }
@@ -110,6 +118,7 @@ public class MCPServer {
         ctx.result(""); // Keep connection open for SSE
     }
 
+    @SuppressWarnings({"PMD.AvoidReassigningParameters", "PMD.CognitiveComplexity"}) // Intentional ID conversion, complex routing
     private static Map<String, Object> createResponse(String method, Map<String, Object> request, Object id) {
         // Convert double IDs to integers for cleaner JSON
         if (id instanceof Double) {
