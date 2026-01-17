@@ -34,6 +34,9 @@ public class MCPServer {
             .credentialsProvider(credentialsProvider)
             .build();
     
+    // Custom schemas storage
+    private static final Map<String, String> customSchemas = new ConcurrentHashMap<>();
+    
     static class JobStatus {
         String status; // "processing", "completed", "failed"
         Map<String, Object> result;
@@ -177,6 +180,34 @@ public class MCPServer {
                             )
                         ),
                         Map.of(
+                            "name", "add_schema",
+                            "description", "Add custom extraction schema for a document type",
+                            "inputSchema", Map.of(
+                                "type", "object",
+                                "properties", Map.of(
+                                    "doc_type", Map.of("type", "string", "description", "Document type (e.g., CUSTOM_INVOICE)"),
+                                    "schema", Map.of("type", "string", "description", "JSON schema for field extraction")
+                                ),
+                                "required", List.of("doc_type", "schema")
+                            )
+                        ),
+                        Map.of(
+                            "name", "list_schemas",
+                            "description", "List all custom schemas",
+                            "inputSchema", Map.of("type", "object", "properties", Map.of())
+                        ),
+                        Map.of(
+                            "name", "get_schema",
+                            "description", "Get schema for a document type",
+                            "inputSchema", Map.of(
+                                "type", "object",
+                                "properties", Map.of(
+                                    "doc_type", Map.of("type", "string", "description", "Document type")
+                                ),
+                                "required", List.of("doc_type")
+                            )
+                        ),
+                        Map.of(
                             "name", "list_resources",
                             "description", "List all available resources",
                             "inputSchema", Map.of(
@@ -264,6 +295,27 @@ public class MCPServer {
                         } else {
                             yield "Job status: " + status.status;
                         }
+                    }
+                    case "add_schema" -> {
+                        String docType = (String) arguments.get("doc_type");
+                        String schema = (String) arguments.get("schema");
+                        customSchemas.put(docType, schema);
+                        yield "Schema added for: " + docType;
+                    }
+                    case "list_schemas" -> {
+                        if (customSchemas.isEmpty()) {
+                            yield "No custom schemas defined. Using built-in schemas.";
+                        } else {
+                            StringBuilder sb = new StringBuilder("Custom schemas:\n");
+                            customSchemas.forEach((type, schema) -> 
+                                sb.append("- ").append(type).append("\n"));
+                            yield sb.toString();
+                        }
+                    }
+                    case "get_schema" -> {
+                        String docType = (String) arguments.get("doc_type");
+                        String schema = customSchemas.getOrDefault(docType, getSchemaForDocType(docType));
+                        yield "Schema for " + docType + ":\n" + schema;
                     }
                     default -> "Unknown tool: " + toolName;
                 };
@@ -488,6 +540,13 @@ public class MCPServer {
                     jobMeta.put("structuredData", structuredData);
                     jobMeta.put("markdown", markdown);
                     
+                    // Add OCR confidence if available
+                    Float confidence = ocrConfidence.get();
+                    if (confidence != null) {
+                        jobMeta.put("ocrConfidence", confidence);
+                        ocrConfidence.remove();
+                    }
+                    
                     // Classify document
                     Map<String, Object> classification = classifyDocument(textractResult);
                     Map<String, Object> consensus = getConsensusClassification(classification);
@@ -639,14 +698,28 @@ public class MCPServer {
                 textractClient.detectDocumentText(request);
             
             StringBuilder text = new StringBuilder();
+            java.util.List<Float> confidences = new java.util.ArrayList<>();
+            
             for (software.amazon.awssdk.services.textract.model.Block block : response.blocks()) {
                 if (block.blockType() == software.amazon.awssdk.services.textract.model.BlockType.LINE) {
                     text.append(block.text()).append("\n");
+                    if (block.confidence() != null) {
+                        confidences.add(block.confidence());
+                    }
                 }
             }
             
+            // Calculate average confidence
+            float avgConfidence = confidences.isEmpty() ? 0 : 
+                (float) confidences.stream().mapToDouble(Float::doubleValue).average().orElse(0);
+            
             String extractedText = text.toString();
-            log.info("Textract extracted {} characters from {}", extractedText.length(), filename);
+            log.info("Textract extracted {} characters from {} (avg confidence: {:.2f}%)", 
+                extractedText.length(), filename, avgConfidence);
+            
+            // Store confidence in thread-local for metadata
+            ocrConfidence.set(avgConfidence);
+            
             return extractedText;
             
         } catch (Exception e) {
@@ -654,6 +727,8 @@ public class MCPServer {
             return "Textract analysis failed: " + e.getMessage();
         }
     }
+    
+    private static final ThreadLocal<Float> ocrConfidence = new ThreadLocal<>();
     
     private static String extractExcelText(byte[] fileBytes) {
         try {
@@ -962,9 +1037,28 @@ public class MCPServer {
     }
     
     private static int extractTar(java.nio.file.Path tarFile, java.nio.file.Path destDir) throws Exception {
-        // TODO: Implement tar extraction using Apache Commons Compress
-        log.warn("TAR extraction not yet implemented");
-        return 0;
+        int count = 0;
+        java.io.InputStream fileStream = java.nio.file.Files.newInputStream(tarFile);
+        
+        // Handle .tar.gz
+        if (tarFile.toString().endsWith(".gz")) {
+            fileStream = new java.util.zip.GZIPInputStream(fileStream);
+        }
+        
+        try (org.apache.commons.compress.archivers.tar.TarArchiveInputStream tis = 
+                new org.apache.commons.compress.archivers.tar.TarArchiveInputStream(fileStream)) {
+            org.apache.commons.compress.archivers.tar.TarArchiveEntry entry;
+            while ((entry = tis.getNextTarEntry()) != null) {
+                if (!entry.isDirectory()) {
+                    java.nio.file.Path filePath = destDir.resolve(entry.getName());
+                    java.nio.file.Files.createDirectories(filePath.getParent());
+                    java.nio.file.Files.copy(tis, filePath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    count++;
+                    log.info("Extracted: {}", entry.getName());
+                }
+            }
+        }
+        return count;
     }
     
     private static Map<String, Object> getConsensusClassification(Map<String, Object> classification) {
@@ -1066,6 +1160,12 @@ public class MCPServer {
     }
     
     private static String getSchemaForDocType(String docType) {
+        // Check for custom schema first
+        if (customSchemas.containsKey(docType)) {
+            return customSchemas.get(docType);
+        }
+        
+        // Fall back to built-in schemas
         return switch (docType) {
             case "INVOICE_PRODUCTION" -> """
                 {
