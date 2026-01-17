@@ -58,4 +58,34 @@ public class FileUploadTest {
         System.out.println("=== Single Upload Result ===");
         System.out.println(result);
     }
+    
+    @Test
+    public void testUploadExcelAndImages() throws Exception {
+        List<Map<String, Object>> files = new ArrayList<>();
+        
+        // Excel files
+        addFile(files, "test-files/invoice.xlsx", "excel");
+        addFile(files, "test-files/purchase_order.xlsx", "excel");
+        
+        // Image files
+        addFile(files, "test-files/invoice.png", "image");
+        addFile(files, "test-files/schedule.png", "image");
+        
+        String result = MCPServer.handleMultiFileUpload(files);
+        System.out.println("=== Excel & Image Upload Result ===");
+        System.out.println(result);
+    }
+    
+    private void addFile(List<Map<String, Object>> files, String path, String type) throws Exception {
+        byte[] bytes = Files.readAllBytes(Paths.get(path));
+        String base64 = Base64.getEncoder().encodeToString(bytes);
+        
+        Map<String, Object> file = new HashMap<>();
+        file.put("filename", Paths.get(path).getFileName().toString());
+        file.put("content", base64);
+        file.put("type", type);
+        files.add(file);
+        
+        System.out.println("Loaded: " + path + " (" + bytes.length + " bytes)");
+    }
 }

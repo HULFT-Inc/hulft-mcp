@@ -5,10 +5,40 @@ import io.javalin.Javalin;
 import io.javalin.http.Context;
 import lombok.extern.slf4j.Slf4j;
 import java.util.*;
+import java.util.concurrent.*;
 
 @Slf4j
 public class MCPServer {
     private static final Gson gson = new Gson();
+    private static final ExecutorService executor = Executors.newFixedThreadPool(10);
+    private static final Map<String, JobStatus> jobs = new ConcurrentHashMap<>();
+    
+    private static final software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider credentialsProvider = 
+        software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider.create("predev");
+    
+    private static final software.amazon.awssdk.services.textract.TextractClient textractClient = 
+        software.amazon.awssdk.services.textract.TextractClient.builder()
+            .region(software.amazon.awssdk.regions.Region.US_EAST_1)
+            .credentialsProvider(credentialsProvider)
+            .build();
+    
+    private static final software.amazon.awssdk.services.comprehend.ComprehendClient comprehendClient =
+        software.amazon.awssdk.services.comprehend.ComprehendClient.builder()
+            .region(software.amazon.awssdk.regions.Region.US_EAST_1)
+            .credentialsProvider(credentialsProvider)
+            .build();
+    
+    private static final software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient bedrockClient =
+        software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient.builder()
+            .region(software.amazon.awssdk.regions.Region.US_EAST_1)
+            .credentialsProvider(credentialsProvider)
+            .build();
+    
+    static class JobStatus {
+        String status; // "processing", "completed", "failed"
+        Map<String, Object> result;
+        String error;
+    }
 
     public static void main(String[] args) {
         log.info("Starting MCP Server");
@@ -113,7 +143,7 @@ public class MCPServer {
                         ),
                         Map.of(
                             "name", "upload_files",
-                            "description", "Upload multiple files (PDF, Excel, Image, or Archive). Archives are extracted into one job folder, other files get separate job folders.",
+                            "description", "Upload multiple files (PDF, Excel, Image, or Archive). Supports async processing. Returns structured JSON, markdown, and classification.",
                             "inputSchema", Map.of(
                                 "type", "object",
                                 "properties", Map.of(
@@ -129,9 +159,21 @@ public class MCPServer {
                                             ),
                                             "required", List.of("filename", "content", "type")
                                         )
-                                    )
+                                    ),
+                                    "async", Map.of("type", "boolean", "description", "Process asynchronously (returns job ID)")
                                 ),
                                 "required", List.of("files")
+                            )
+                        ),
+                        Map.of(
+                            "name", "check_job",
+                            "description", "Check status of async job",
+                            "inputSchema", Map.of(
+                                "type", "object",
+                                "properties", Map.of(
+                                    "job_id", Map.of("type", "string", "description", "Job ID from async upload")
+                                ),
+                                "required", List.of("job_id")
                             )
                         ),
                         Map.of(
@@ -184,7 +226,45 @@ public class MCPServer {
                         String code = (String) arguments.get("code");
                         yield "Code Review Prompt:\nPlease review this code:\n\n" + code;
                     }
-                    case "upload_files" -> handleMultiFileUpload((List<Map<String, Object>>) arguments.get("files"));
+                    case "upload_files" -> {
+                        List<Map<String, Object>> files = (List<Map<String, Object>>) arguments.get("files");
+                        boolean async = arguments.containsKey("async") && (Boolean) arguments.get("async");
+                        
+                        if (async) {
+                            String jobId = java.util.UUID.randomUUID().toString();
+                            JobStatus status = new JobStatus();
+                            status.status = "processing";
+                            jobs.put(jobId, status);
+                            
+                            executor.submit(() -> {
+                                try {
+                                    String result = handleMultiFileUpload(files);
+                                    status.result = Map.of("text", result);
+                                    status.status = "completed";
+                                } catch (Exception e) {
+                                    status.error = e.getMessage();
+                                    status.status = "failed";
+                                }
+                            });
+                            
+                            yield "Job started: " + jobId + "\nUse check_job tool to get status.";
+                        } else {
+                            yield handleMultiFileUpload(files);
+                        }
+                    }
+                    case "check_job" -> {
+                        String jobId = (String) arguments.get("job_id");
+                        JobStatus status = jobs.get(jobId);
+                        if (status == null) {
+                            yield "Job not found: " + jobId;
+                        } else if (status.status.equals("completed")) {
+                            yield (String) status.result.get("text");
+                        } else if (status.status.equals("failed")) {
+                            yield "Job failed: " + status.error;
+                        } else {
+                            yield "Job status: " + status.status;
+                        }
+                    }
                     default -> "Unknown tool: " + toolName;
                 };
                 
@@ -331,9 +411,24 @@ public class MCPServer {
                         java.nio.file.Path filePath = java.nio.file.Paths.get(jobPath, filename);
                         java.nio.file.Files.write(filePath, fileBytes);
                         
-                        // Analyze with Textract
-                        String textractResult = analyzeWithTextract(fileBytes, filename);
+                        // Extract text and structured data
+                        String textractResult;
+                        Map<String, Object> structuredData = new java.util.HashMap<>();
+                        String markdown = "";
+                        
+                        if ("excel".equals(type) || detectedType.contains("spreadsheet") || detectedType.contains("ooxml")) {
+                            textractResult = extractExcelText(fileBytes);
+                            structuredData = extractStructuredFromExcel(fileBytes);
+                            markdown = convertExcelToMarkdown(fileBytes);
+                        } else {
+                            textractResult = analyzeWithTextract(fileBytes, filename);
+                            structuredData = extractStructuredWithTextract(fileBytes);
+                            markdown = convertToMarkdown(textractResult, structuredData);
+                        }
+                        
                         fileMeta.put("textractAnalysis", textractResult);
+                        fileMeta.put("structuredData", structuredData);
+                        fileMeta.put("markdown", markdown);
                         
                         result.append(String.format("✓ %s (%s) - %d bytes\n", filename, type, fileBytes.length));
                     }
@@ -365,8 +460,20 @@ public class MCPServer {
                     java.nio.file.Path filePath = java.nio.file.Paths.get(jobPath, filename);
                     java.nio.file.Files.write(filePath, fileBytes);
                     
-                    // Analyze with Textract
-                    String textractResult = analyzeWithTextract(fileBytes, filename);
+                    // Extract text and structured data
+                    String textractResult;
+                    Map<String, Object> structuredData = new java.util.HashMap<>();
+                    String markdown = "";
+                    
+                    if ("excel".equals(type) || detectedType.contains("spreadsheet") || detectedType.contains("ooxml")) {
+                        textractResult = extractExcelText(fileBytes);
+                        structuredData = extractStructuredFromExcel(fileBytes);
+                        markdown = convertExcelToMarkdown(fileBytes);
+                    } else {
+                        textractResult = analyzeWithTextract(fileBytes, filename);
+                        structuredData = extractStructuredWithTextract(fileBytes);
+                        markdown = convertToMarkdown(textractResult, structuredData);
+                    }
                     
                     // Save metadata for this job
                     Map<String, Object> jobMeta = new java.util.HashMap<>();
@@ -378,13 +485,19 @@ public class MCPServer {
                     jobMeta.put("detectedType", detectedType);
                     jobMeta.put("size", fileBytes.length);
                     jobMeta.put("textractAnalysis", textractResult);
+                    jobMeta.put("structuredData", structuredData);
+                    jobMeta.put("markdown", markdown);
                     
                     // Classify document
                     Map<String, Object> classification = classifyDocument(textractResult);
                     Map<String, Object> consensus = getConsensusClassification(classification);
                     
+                    // Extract structured fields with Bedrock
+                    Map<String, Object> extractedFields = extractFieldsWithBedrock(textractResult, (String) consensus.get("type"));
+                    
                     jobMeta.put("classification", classification);
                     jobMeta.put("finalClassification", consensus);
+                    jobMeta.put("extractedFields", extractedFields);
                     
                     saveMetadata(jobPath, jobMeta);
                     
@@ -515,15 +628,6 @@ public class MCPServer {
     
     private static String analyzeWithTextract(byte[] fileBytes, String filename) {
         try {
-            software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider credentialsProvider = 
-                software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider.create("predev");
-            
-            software.amazon.awssdk.services.textract.TextractClient textractClient = 
-                software.amazon.awssdk.services.textract.TextractClient.builder()
-                    .region(software.amazon.awssdk.regions.Region.US_EAST_1)
-                    .credentialsProvider(credentialsProvider)
-                    .build();
-            
             software.amazon.awssdk.services.textract.model.DetectDocumentTextRequest request = 
                 software.amazon.awssdk.services.textract.model.DetectDocumentTextRequest.builder()
                     .document(software.amazon.awssdk.services.textract.model.Document.builder()
@@ -548,6 +652,155 @@ public class MCPServer {
         } catch (Exception e) {
             log.error("Error with Textract analysis", e);
             return "Textract analysis failed: " + e.getMessage();
+        }
+    }
+    
+    private static String extractExcelText(byte[] fileBytes) {
+        try {
+            org.apache.poi.ss.usermodel.Workbook workbook = org.apache.poi.ss.usermodel.WorkbookFactory.create(new java.io.ByteArrayInputStream(fileBytes));
+            StringBuilder text = new StringBuilder();
+            for (org.apache.poi.ss.usermodel.Sheet sheet : workbook) {
+                for (org.apache.poi.ss.usermodel.Row row : sheet) {
+                    for (org.apache.poi.ss.usermodel.Cell cell : row) {
+                        text.append(cell.toString()).append(" ");
+                    }
+                    text.append("\n");
+                }
+            }
+            workbook.close();
+            return text.toString();
+        } catch (Exception e) {
+            log.error("Error extracting Excel text", e);
+            return "Excel extraction failed: " + e.getMessage();
+        }
+    }
+    
+    private static Map<String, Object> extractStructuredWithTextract(byte[] fileBytes) {
+        Map<String, Object> result = new java.util.HashMap<>();
+        
+        // Extract tables with Tabula
+        try {
+            java.io.File tempFile = java.io.File.createTempFile("doc", ".pdf");
+            java.nio.file.Files.write(tempFile.toPath(), fileBytes);
+            
+            org.apache.pdfbox.pdmodel.PDDocument document = org.apache.pdfbox.pdmodel.PDDocument.load(tempFile);
+            technology.tabula.ObjectExtractor extractor = new technology.tabula.ObjectExtractor(document);
+            technology.tabula.PageIterator pages = extractor.extract();
+            
+            java.util.List<java.util.List<java.util.List<String>>> allTables = new java.util.ArrayList<>();
+            while (pages.hasNext()) {
+                technology.tabula.Page page = pages.next();
+                java.util.List<technology.tabula.Table> tables = new technology.tabula.extractors.BasicExtractionAlgorithm().extract(page);
+                for (technology.tabula.Table table : tables) {
+                    java.util.List<java.util.List<String>> tableData = new java.util.ArrayList<>();
+                    for (java.util.List<technology.tabula.RectangularTextContainer> row : table.getRows()) {
+                        java.util.List<String> rowData = new java.util.ArrayList<>();
+                        for (technology.tabula.RectangularTextContainer cell : row) {
+                            rowData.add(cell.getText());
+                        }
+                        tableData.add(rowData);
+                    }
+                    allTables.add(tableData);
+                }
+            }
+            extractor.close();
+            tempFile.delete();
+            
+            result.put("tables", allTables);
+        } catch (Exception e) {
+            log.warn("Tabula extraction failed: {}", e.getMessage());
+            result.put("tables", java.util.List.of());
+        }
+        
+        result.put("keyValues", Map.of());
+        return result;
+    }
+    
+    private static Map<String, Object> extractStructuredFromExcel(byte[] fileBytes) {
+        try {
+            org.apache.poi.ss.usermodel.Workbook workbook = org.apache.poi.ss.usermodel.WorkbookFactory.create(new java.io.ByteArrayInputStream(fileBytes));
+            Map<String, Object> result = new java.util.HashMap<>();
+            java.util.List<Map<String, Object>> sheets = new java.util.ArrayList<>();
+            
+            for (org.apache.poi.ss.usermodel.Sheet sheet : workbook) {
+                Map<String, Object> sheetData = new java.util.HashMap<>();
+                sheetData.put("name", sheet.getSheetName());
+                
+                java.util.List<java.util.List<String>> rows = new java.util.ArrayList<>();
+                for (org.apache.poi.ss.usermodel.Row row : sheet) {
+                    java.util.List<String> rowData = new java.util.ArrayList<>();
+                    for (org.apache.poi.ss.usermodel.Cell cell : row) {
+                        rowData.add(cell.toString());
+                    }
+                    rows.add(rowData);
+                }
+                sheetData.put("rows", rows);
+                sheets.add(sheetData);
+            }
+            
+            result.put("sheets", sheets);
+            workbook.close();
+            return result;
+        } catch (Exception e) {
+            log.error("Error extracting structured Excel data", e);
+            return Map.of("error", e.getMessage());
+        }
+    }
+    
+    private static String convertToMarkdown(String text, Map<String, Object> structured) {
+        StringBuilder md = new StringBuilder();
+        md.append("# Document\n\n");
+        
+        // Add key-value pairs
+        if (structured.containsKey("keyValues")) {
+            @SuppressWarnings("unchecked")
+            Map<String, String> kv = (Map<String, String>) structured.get("keyValues");
+            if (!kv.isEmpty()) {
+                md.append("## Fields\n\n");
+                kv.forEach((k, v) -> md.append("- **").append(k).append("**: ").append(v).append("\n"));
+                md.append("\n");
+            }
+        }
+        
+        // Add raw text
+        md.append("## Content\n\n");
+        md.append("```\n").append(text).append("\n```\n");
+        
+        return md.toString();
+    }
+    
+    private static String convertExcelToMarkdown(byte[] fileBytes) {
+        try {
+            org.apache.poi.ss.usermodel.Workbook workbook = org.apache.poi.ss.usermodel.WorkbookFactory.create(new java.io.ByteArrayInputStream(fileBytes));
+            StringBuilder md = new StringBuilder();
+            
+            for (org.apache.poi.ss.usermodel.Sheet sheet : workbook) {
+                md.append("# ").append(sheet.getSheetName()).append("\n\n");
+                
+                for (org.apache.poi.ss.usermodel.Row row : sheet) {
+                    md.append("| ");
+                    for (org.apache.poi.ss.usermodel.Cell cell : row) {
+                        md.append(cell.toString()).append(" | ");
+                    }
+                    md.append("\n");
+                    
+                    // Add header separator after first row
+                    if (row.getRowNum() == 0) {
+                        md.append("| ");
+                        for (int i = 0; i < row.getLastCellNum(); i++) {
+                            md.append("--- | ");
+                        }
+                        md.append("\n");
+                    }
+                }
+                md.append("\n");
+            }
+            
+            workbook.close();
+            return md.toString();
+        } catch (Exception e) {
+            log.error("Error converting Excel to markdown", e);
+            return "Error: " + e.getMessage();
         }
     }
     
@@ -597,15 +850,6 @@ public class MCPServer {
     }
     
     private static Map<String, Object> classifyWithComprehend(String text) {
-        software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider credentialsProvider = 
-            software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider.create("predev");
-        
-        software.amazon.awssdk.services.comprehend.ComprehendClient comprehend = 
-            software.amazon.awssdk.services.comprehend.ComprehendClient.builder()
-                .region(software.amazon.awssdk.regions.Region.US_EAST_1)
-                .credentialsProvider(credentialsProvider)
-                .build();
-        
         // Detect entities to help classify
         software.amazon.awssdk.services.comprehend.model.DetectEntitiesRequest request = 
             software.amazon.awssdk.services.comprehend.model.DetectEntitiesRequest.builder()
@@ -614,7 +858,7 @@ public class MCPServer {
                 .build();
         
         software.amazon.awssdk.services.comprehend.model.DetectEntitiesResponse response = 
-            comprehend.detectEntities(request);
+            comprehendClient.detectEntities(request);
         
         // Simple heuristic based on entities
         String docType = "UNKNOWN";
@@ -640,15 +884,6 @@ public class MCPServer {
     }
     
     private static Map<String, Object> classifyWithBedrock(String text) {
-        software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider credentialsProvider = 
-            software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider.create("predev");
-        
-        software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient bedrock = 
-            software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient.builder()
-                .region(software.amazon.awssdk.regions.Region.US_EAST_1)
-                .credentialsProvider(credentialsProvider)
-                .build();
-        
         String prompt = String.format(
             "Classify this document as exactly one of: SCHEDULE_PRODUCTION, INVOICE_PRODUCTION, PURCHASE_ORDER, CUSTOMS_DECLARATION\n\n" +
             "Guidelines:\n" +
@@ -677,7 +912,7 @@ public class MCPServer {
                 .build();
         
         software.amazon.awssdk.services.bedrockruntime.model.InvokeModelResponse response = 
-            bedrock.invokeModel(request);
+            bedrockClient.invokeModel(request);
         
         String responseBody = response.body().asUtf8String();
         Map<String, Object> responseJson = gson.fromJson(responseBody, Map.class);
@@ -774,5 +1009,102 @@ public class MCPServer {
         } else {
             return Map.of("type", comprehendType, "confidence", comprehendConf, "method", "comprehend");
         }
+    }
+    
+    private static Map<String, Object> extractFieldsWithBedrock(String text, String docType) {
+        try {
+            String schema = getSchemaForDocType(docType);
+            String prompt = String.format(
+                "Extract fields from this document and return ONLY a JSON object (no markdown, no explanation).\n\nSchema:\n%s\n\nDocument:\n%s\n\nJSON:",
+                schema, text.substring(0, Math.min(2000, text.length()))
+            );
+            
+            String requestBody = gson.toJson(Map.of(
+                "anthropic_version", "bedrock-2023-05-31",
+                "max_tokens", 1000,
+                "messages", List.of(Map.of(
+                    "role", "user",
+                    "content", prompt
+                ))
+            ));
+            
+            software.amazon.awssdk.services.bedrockruntime.model.InvokeModelRequest request = 
+                software.amazon.awssdk.services.bedrockruntime.model.InvokeModelRequest.builder()
+                    .modelId("anthropic.claude-3-haiku-20240307-v1:0")
+                    .body(software.amazon.awssdk.core.SdkBytes.fromUtf8String(requestBody))
+                    .build();
+            
+            software.amazon.awssdk.services.bedrockruntime.model.InvokeModelResponse response = bedrockClient.invokeModel(request);
+            String responseBody = response.body().asUtf8String();
+            Map<String, Object> responseMap = gson.fromJson(responseBody, Map.class);
+            List<Map<String, Object>> content = (List<Map<String, Object>>) responseMap.get("content");
+            String extractedText = (String) content.get(0).get("text");
+            
+            // Extract JSON from response (handle markdown code blocks)
+            extractedText = extractedText.trim();
+            if (extractedText.startsWith("```")) {
+                int start = extractedText.indexOf("{");
+                int end = extractedText.lastIndexOf("}");
+                if (start >= 0 && end > start) {
+                    extractedText = extractedText.substring(start, end + 1);
+                }
+            }
+            
+            // Find first { and last }
+            int jsonStart = extractedText.indexOf("{");
+            int jsonEnd = extractedText.lastIndexOf("}");
+            if (jsonStart >= 0 && jsonEnd > jsonStart) {
+                extractedText = extractedText.substring(jsonStart, jsonEnd + 1);
+            }
+            
+            return gson.fromJson(extractedText, Map.class);
+            
+        } catch (Exception e) {
+            log.error("Bedrock field extraction failed: {}", e.getMessage());
+            return Map.of("error", e.getMessage());
+        }
+    }
+    
+    private static String getSchemaForDocType(String docType) {
+        return switch (docType) {
+            case "INVOICE_PRODUCTION" -> """
+                {
+                  "invoice_number": "string",
+                  "date": "string",
+                  "customer": "string",
+                  "total_amount": "string",
+                  "items": [{"name": "string", "amount": "string"}]
+                }
+                """;
+            case "PURCHASE_ORDER" -> """
+                {
+                  "po_number": "string",
+                  "date": "string",
+                  "vendor": "string",
+                  "total_amount": "string",
+                  "items": [{"name": "string", "quantity": "string"}]
+                }
+                """;
+            case "SCHEDULE_PRODUCTION" -> """
+                {
+                  "date": "string",
+                  "product": "string",
+                  "quantity": "string",
+                  "start_time": "string",
+                  "end_time": "string",
+                  "line": "string"
+                }
+                """;
+            case "CUSTOMS_DECLARATION" -> """
+                {
+                  "declaration_number": "string",
+                  "date": "string",
+                  "origin": "string",
+                  "destination": "string",
+                  "items": [{"description": "string", "value": "string"}]
+                }
+                """;
+            default -> "{}";
+        };
     }
 }
