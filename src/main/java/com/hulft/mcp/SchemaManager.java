@@ -5,14 +5,29 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Manages custom extraction schemas for different document types.
+ * Provides storage and retrieval of JSON schemas used for field extraction,
+ * with built-in schemas for common document types.
  */
 public class SchemaManager {
     private final Map<String, String> customSchemas = new ConcurrentHashMap<>();
     
+    /**
+     * Adds or updates a custom schema for a document type.
+     *
+     * @param docType the document type identifier
+     * @param schema the JSON schema definition
+     */
     public void addSchema(final String docType, final String schema) {
         customSchemas.put(docType, schema);
     }
     
+    /**
+     * Retrieves the schema for a document type.
+     * Returns custom schema if available, otherwise returns built-in schema.
+     *
+     * @param docType the document type identifier
+     * @return JSON schema string, or "{}" if no schema exists
+     */
     public String getSchema(final String docType) {
         if (customSchemas.containsKey(docType)) {
             return customSchemas.get(docType);
@@ -20,10 +35,21 @@ public class SchemaManager {
         return getBuiltInSchema(docType);
     }
     
+    /**
+     * Checks if a custom schema exists for the document type.
+     *
+     * @param docType the document type identifier
+     * @return true if custom schema exists, false otherwise
+     */
     public boolean hasCustomSchema(final String docType) {
         return customSchemas.containsKey(docType);
     }
     
+    /**
+     * Returns a copy of all custom schemas.
+     *
+     * @return map of document types to their custom schemas
+     */
     public Map<String, String> getAllCustomSchemas() {
         return new ConcurrentHashMap<>(customSchemas);
     }
