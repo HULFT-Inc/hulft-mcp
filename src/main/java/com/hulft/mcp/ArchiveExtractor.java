@@ -1,6 +1,7 @@
 package com.hulft.mcp;
 
 import lombok.extern.slf4j.Slf4j;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -17,6 +18,7 @@ import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 @Slf4j
 public class ArchiveExtractor {
     
+    @SuppressWarnings("PMD.AvoidCatchingGenericException")
     public int extract(final String archivePath, final String destPath) {
         try {
             final Path archive = Paths.get(archivePath);
@@ -28,17 +30,22 @@ public class ArchiveExtractor {
                 return extractTar(archive, dest);
             }
             
-            log.warn("Unsupported archive format: {}", archivePath);
+            if (log.isWarnEnabled()) {
+                log.warn("Unsupported archive format: {}", archivePath);
+            }
             return 0;
         } catch (final Exception e) {
-            log.error("Error extracting archive", e);
+            if (log.isErrorEnabled()) {
+                log.error("Error extracting archive", e);
+            }
             return 0;
         }
     }
     
-    private int extractZip(final Path zipFile, final Path destDir) throws Exception {
+    @SuppressWarnings({"PMD.AssignmentInOperand", "PMD.CloseResource"})
+    private int extractZip(final Path zipFile, final Path destDir) throws IOException {
         int count = 0;
-        try (final ZipInputStream zis = new ZipInputStream(Files.newInputStream(zipFile))) {
+        try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(zipFile))) {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 if (!entry.isDirectory()) {
@@ -46,7 +53,9 @@ public class ArchiveExtractor {
                     Files.createDirectories(filePath.getParent());
                     Files.copy(zis, filePath, StandardCopyOption.REPLACE_EXISTING);
                     count++;
-                    log.info("Extracted: {}", entry.getName());
+                    if (log.isInfoEnabled()) {
+                        log.info("Extracted: {}", entry.getName());
+                    }
                 }
                 zis.closeEntry();
             }
@@ -54,7 +63,8 @@ public class ArchiveExtractor {
         return count;
     }
     
-    private int extractTar(final Path tarFile, final Path destDir) throws Exception {
+    @SuppressWarnings({"PMD.AssignmentInOperand", "PMD.CloseResource"})
+    private int extractTar(final Path tarFile, final Path destDir) throws IOException {
         int count = 0;
         java.io.InputStream fileStream = Files.newInputStream(tarFile);
         
@@ -62,7 +72,7 @@ public class ArchiveExtractor {
             fileStream = new GZIPInputStream(fileStream);
         }
         
-        try (final TarArchiveInputStream tis = new TarArchiveInputStream(fileStream)) {
+        try (TarArchiveInputStream tis = new TarArchiveInputStream(fileStream)) {
             TarArchiveEntry entry;
             while ((entry = tis.getNextTarEntry()) != null) {
                 if (!entry.isDirectory()) {
@@ -70,7 +80,9 @@ public class ArchiveExtractor {
                     Files.createDirectories(filePath.getParent());
                     Files.copy(tis, filePath, StandardCopyOption.REPLACE_EXISTING);
                     count++;
-                    log.info("Extracted: {}", entry.getName());
+                    if (log.isInfoEnabled()) {
+                        log.info("Extracted: {}", entry.getName());
+                    }
                 }
             }
         }
