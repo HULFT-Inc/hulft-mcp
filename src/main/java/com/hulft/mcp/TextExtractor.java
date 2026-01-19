@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
  * Handles text extraction from various document formats.
  */
 @Slf4j
+@SuppressWarnings("PMD.AvoidCatchingGenericException") // Generic exception handling for robustness
 public class TextExtractor {
     private final software.amazon.awssdk.services.textract.TextractClient textractClient;
     private final ThreadLocal<Float> ocrConfidence = new ThreadLocal<>();
