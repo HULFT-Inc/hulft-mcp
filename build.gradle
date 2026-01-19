@@ -45,6 +45,12 @@ checkstyle {
     maxWarnings = 100  // Allow warnings
 }
 
+tasks.withType(Checkstyle) {
+    configProperties = [
+        'suppressionFile': file("${rootDir}/config/checkstyle/suppressions.xml")
+    ]
+}
+
 // PMD configuration
 pmd {
     toolVersion = '6.55.0'

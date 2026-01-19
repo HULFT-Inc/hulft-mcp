@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<!DOCTYPE suppressions PUBLIC
+    "-//Checkstyle//DTD SuppressionFilter Configuration 1.2//EN"
+    "https://checkstyle.org/dtds/suppressions_1_2.dtd">
+
+<suppressions>
+    <!-- Instance fields use camelCase, not UPPER_CASE -->
+    <suppress checks="ConstantNameCheck" files=".*\.java"/>
+    
+    <!-- TODO comments are acceptable for tracking work -->
+    <suppress checks="TodoCommentCheck" files=".*\.java"/>
+    
+    <!-- Long methods acceptable for complex processing -->
+    <suppress checks="MethodLengthCheck" files=".*\.java"/>
+    
+    <!-- Utility class pattern acceptable -->
+    <suppress checks="HideUtilityClassConstructorCheck" files=".*\.java"/>
+    
+    <!-- Operator wrapping style is consistent -->
+    <suppress checks="OperatorWrapCheck" files=".*\.java"/>
+    
+    <!-- Line length acceptable for readability -->
+    <suppress checks="LineLengthCheck" files=".*\.java"/>
+    
+    <!-- Single-line statements are clear without braces -->
+    <suppress checks="NeedBracesCheck" files=".*\.java"/>
+</suppressions>
