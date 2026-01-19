@@ -8,57 +8,44 @@ import java.util.*;
 import java.util.concurrent.*;
 
 @Slf4j
-@SuppressWarnings({
-    "PMD.GodClass",
-    "PMD.TooManyMethods",
-    "PMD.CyclomaticComplexity",
-    "PMD.ExcessiveClassLength",
-    "PMD.AvoidDuplicateLiterals" // JSON-RPC protocol strings
-})
+@SuppressWarnings("PMD.AvoidDuplicateLiterals") // JSON-RPC protocol strings
 public class MCPServer {
-    @SuppressWarnings("PMD.FieldNamingConventions") // Object instances, not primitive constants
     private static final Gson gson = new Gson();
-    @SuppressWarnings("PMD.FieldNamingConventions")
-    private static final ExecutorService executor = Executors.newFixedThreadPool(10);
-    @SuppressWarnings("PMD.FieldNamingConventions")
-    private static final Map<String, JobStatus> jobs = new ConcurrentHashMap<>();
     
-    @SuppressWarnings("PMD.FieldNamingConventions")
+    // Service components
+    private static final JobManager jobManager = new JobManager();
+    private static final SchemaManager schemaManager = new SchemaManager();
+    private static final ArchiveExtractor archiveExtractor = new ArchiveExtractor();
+    private static final MarkdownConverter markdownConverter = new MarkdownConverter();
+    
+    // AWS clients
     private static final software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider credentialsProvider = 
         software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider.create("predev");
     
-    @SuppressWarnings("PMD.FieldNamingConventions")
     private static final software.amazon.awssdk.services.textract.TextractClient textractClient = 
         software.amazon.awssdk.services.textract.TextractClient.builder()
             .region(software.amazon.awssdk.regions.Region.US_EAST_1)
             .credentialsProvider(credentialsProvider)
             .build();
     
-    @SuppressWarnings("PMD.FieldNamingConventions")
     private static final software.amazon.awssdk.services.comprehend.ComprehendClient comprehendClient =
         software.amazon.awssdk.services.comprehend.ComprehendClient.builder()
             .region(software.amazon.awssdk.regions.Region.US_EAST_1)
             .credentialsProvider(credentialsProvider)
             .build();
     
-    @SuppressWarnings("PMD.FieldNamingConventions")
     private static final software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient bedrockClient =
         software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient.builder()
             .region(software.amazon.awssdk.regions.Region.US_EAST_1)
             .credentialsProvider(credentialsProvider)
             .build();
     
-    @SuppressWarnings("PMD.FieldNamingConventions")
-    private static final Map<String, String> customSchemas = new ConcurrentHashMap<>();
+    // Service instances
+    private static final TextExtractor textExtractor = new TextExtractor(textractClient);
+    private static final DocumentClassifier classifier = new DocumentClassifier(comprehendClient, bedrockClient);
+    private static final FieldExtractor fieldExtractor = new FieldExtractor(bedrockClient, schemaManager);
     
-    @SuppressWarnings("PMD.FieldNamingConventions") // ThreadLocal, not a constant
     private static final ThreadLocal<Float> ocrConfidence = new ThreadLocal<>();
-    
-    static class JobStatus {
-        String status; // "processing", "completed", "failed"
-        Map<String, Object> result;
-        String error;
-    }
 
     @SuppressWarnings("PMD.CloseResource") // Server runs until shutdown
     public static void main(String[] args) {
@@ -283,22 +270,15 @@ public class MCPServer {
                         boolean async = arguments.containsKey("async") && (Boolean) arguments.get("async");
                         
                         if (async) {
-                            String jobId = java.util.UUID.randomUUID().toString();
-                            JobStatus status = new JobStatus();
-                            status.status = "processing";
-                            jobs.put(jobId, status);
-                            
-                            executor.submit(() -> {
+                            String jobId = jobManager.createJob();
+                            jobManager.submitJob(jobId, () -> {
                                 try {
                                     String result = handleMultiFileUpload(files);
-                                    status.result = Map.of("text", result);
-                                    status.status = "completed";
+                                    jobManager.completeJob(jobId, Map.of("text", result));
                                 } catch (Exception e) { // NOPMD - Catch all for async error handling
-                                    status.error = e.getMessage();
-                                    status.status = "failed";
+                                    jobManager.failJob(jobId, e.getMessage());
                                 }
                             });
-                            
                             yield "Job started: " + jobId + "\nUse check_job tool to get status.";
                         } else {
                             yield handleMultiFileUpload(files);
@@ -306,7 +286,7 @@ public class MCPServer {
                     }
                     case "check_job" -> {
                         String jobId = (String) arguments.get("job_id");
-                        JobStatus status = jobs.get(jobId);
+                        JobManager.JobStatus status = jobManager.getJobStatus(jobId);
                         if (status == null) {
                             yield "Job not found: " + jobId;
                         } else if (status.status.equals("completed")) {
@@ -320,23 +300,23 @@ public class MCPServer {
                     case "add_schema" -> {
                         String docType = (String) arguments.get("doc_type");
                         String schema = (String) arguments.get("schema");
-                        customSchemas.put(docType, schema);
+                        schemaManager.addSchema(docType, schema);
                         yield "Schema added for: " + docType;
                     }
                     case "list_schemas" -> {
-                        if (customSchemas.isEmpty()) {
+                        Map<String, String> schemas = schemaManager.getAllCustomSchemas();
+                        if (schemas.isEmpty()) {
                             yield "No custom schemas defined. Using built-in schemas.";
                         } else {
                             StringBuilder sb = new StringBuilder("Custom schemas:\n");
-                            customSchemas.forEach((type, schema) -> 
+                            schemas.forEach((type, schema) -> 
                                 sb.append("- ").append(type).append("\n"));
                             yield sb.toString();
                         }
                     }
                     case "get_schema" -> {
                         String docType = (String) arguments.get("doc_type");
-                        String schema = customSchemas.getOrDefault(docType, getSchemaForDocType(docType));
-                        yield "Schema for " + docType + ":\n" + schema;
+                        yield "Schema for " + docType + ":\n" + schemaManager.getSchema(docType);
                     }
                     default -> "Unknown tool: " + toolName;
                 };
@@ -477,7 +457,7 @@ public class MCPServer {
                         java.nio.file.Files.write(archivePath, fileBytes);
                         
                         // Extract archive
-                        int extractedCount = extractArchive(archivePath.toString(), jobPath);
+                        int extractedCount = archiveExtractor.extract(archivePath.toString(), jobPath);
                         result.append(String.format("✓ %s (archive) - %d bytes - extracted %d files\n", 
                             filename, fileBytes.length, extractedCount));
                     } else {
@@ -492,7 +472,7 @@ public class MCPServer {
                         if ("excel".equals(type) || detectedType.contains("spreadsheet") || detectedType.contains("ooxml")) {
                             textractResult = extractExcelText(fileBytes);
                             structuredData = extractStructuredFromExcel(fileBytes);
-                            markdown = convertExcelToMarkdown(fileBytes);
+                            markdown = markdownConverter.convertExcelToMarkdown(fileBytes);
                         } else {
                             textractResult = analyzeWithTextract(fileBytes, filename);
                             structuredData = extractStructuredWithTextract(fileBytes);
@@ -541,7 +521,7 @@ public class MCPServer {
                     if ("excel".equals(type) || detectedType.contains("spreadsheet") || detectedType.contains("ooxml")) {
                         textractResult = extractExcelText(fileBytes);
                         structuredData = extractStructuredFromExcel(fileBytes);
-                        markdown = convertExcelToMarkdown(fileBytes);
+                        markdown = markdownConverter.convertExcelToMarkdown(fileBytes);
                     } else {
                         textractResult = analyzeWithTextract(fileBytes, filename);
                         structuredData = extractStructuredWithTextract(fileBytes);
@@ -569,11 +549,11 @@ public class MCPServer {
                     }
                     
                     // Classify document
-                    Map<String, Object> classification = classifyDocument(textractResult);
-                    Map<String, Object> consensus = getConsensusClassification(classification);
+                    Map<String, Object> classification = classifier.classify(textractResult);
+                    Map<String, Object> consensus = classifier.getConsensus(classification);
                     
                     // Extract structured fields with Bedrock
-                    Map<String, Object> extractedFields = extractFieldsWithBedrock(textractResult, (String) consensus.get("type"));
+                    Map<String, Object> extractedFields = fieldExtractor.extractFields(textractResult, (String) consensus.get("type"));
                     
                     jobMeta.put("classification", classification);
                     jobMeta.put("finalClassification", consensus);
@@ -865,41 +845,6 @@ public class MCPServer {
         return md.toString();
     }
     
-    private static String convertExcelToMarkdown(byte[] fileBytes) {
-        try {
-            org.apache.poi.ss.usermodel.Workbook workbook = org.apache.poi.ss.usermodel.WorkbookFactory.create(new java.io.ByteArrayInputStream(fileBytes));
-            StringBuilder md = new StringBuilder();
-            
-            for (org.apache.poi.ss.usermodel.Sheet sheet : workbook) {
-                md.append("# ").append(sheet.getSheetName()).append("\n\n");
-                
-                for (org.apache.poi.ss.usermodel.Row row : sheet) {
-                    md.append("| ");
-                    for (org.apache.poi.ss.usermodel.Cell cell : row) {
-                        md.append(cell.toString()).append(" | ");
-                    }
-                    md.append("\n");
-                    
-                    // Add header separator after first row
-                    if (row.getRowNum() == 0) {
-                        md.append("| ");
-                        for (int i = 0; i < row.getLastCellNum(); i++) {
-                            md.append("--- | ");
-                        }
-                        md.append("\n");
-                    }
-                }
-                md.append("\n");
-            }
-            
-            workbook.close();
-            return md.toString();
-        } catch (Exception e) {
-            log.error("Error converting Excel to markdown", e);
-            return "Error: " + e.getMessage();
-        }
-    }
-    
     private static void saveMetadata(String jobPath, Map<String, Object> metadata) {
         try {
             java.nio.file.Path metaPath = java.nio.file.Paths.get(jobPath, "meta.json");
@@ -909,323 +854,5 @@ public class MCPServer {
         } catch (Exception e) {
             log.error("Error saving metadata", e);
         }
-    }
-    
-    private static Map<String, Object> classifyDocument(String textractText) {
-        Map<String, Object> classification = new java.util.HashMap<>();
-        
-        // Method 1: Regex extraction
-        String regexType = extractPurposeCode(textractText);
-        classification.put("regex", Map.of("type", regexType, "confidence", regexType.equals("UNKNOWN") ? 0.0 : 1.0));
-        
-        // Method 2: AWS Comprehend
-        try {
-            Map<String, Object> comprehendResult = classifyWithComprehend(textractText);
-            classification.put("comprehend", comprehendResult);
-        } catch (Exception e) {
-            log.error("Comprehend classification failed", e);
-            classification.put("comprehend", Map.of("error", e.getMessage()));
-        }
-        
-        // Method 3: AWS Bedrock (Claude)
-        try {
-            Map<String, Object> bedrockResult = classifyWithBedrock(textractText);
-            classification.put("bedrock", bedrockResult);
-        } catch (Exception e) {
-            log.error("Bedrock classification failed", e);
-            classification.put("bedrock", Map.of("error", e.getMessage()));
-        }
-        
-        return classification;
-    }
-    
-    private static String extractPurposeCode(String text) {
-        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("Purpose:\\s*([A-Z_]+)");
-        java.util.regex.Matcher matcher = pattern.matcher(text);
-        return matcher.find() ? matcher.group(1) : "UNKNOWN";
-    }
-    
-    private static Map<String, Object> classifyWithComprehend(String text) {
-        // Detect entities to help classify
-        software.amazon.awssdk.services.comprehend.model.DetectEntitiesRequest request = 
-            software.amazon.awssdk.services.comprehend.model.DetectEntitiesRequest.builder()
-                .text(text.substring(0, Math.min(5000, text.length())))
-                .languageCode("en")
-                .build();
-        
-        software.amazon.awssdk.services.comprehend.model.DetectEntitiesResponse response = 
-            comprehendClient.detectEntities(request);
-        
-        // Simple heuristic based on entities
-        String docType = "UNKNOWN";
-        double confidence = 0.0;
-        
-        for (software.amazon.awssdk.services.comprehend.model.Entity entity : response.entities()) {
-            if (entity.text().contains("Invoice") || entity.text().contains("INV-")) {
-                docType = "INVOICE_PRODUCTION";
-                confidence = entity.score();
-            } else if (entity.text().contains("PO-") || entity.text().contains("Purchase")) {
-                docType = "PURCHASE_ORDER";
-                confidence = entity.score();
-            } else if (entity.text().contains("Schedule") || entity.text().contains("Production")) {
-                docType = "SCHEDULE_PRODUCTION";
-                confidence = entity.score();
-            } else if (entity.text().contains("Customs") || entity.text().contains("Declaration")) {
-                docType = "CUSTOMS_DECLARATION";
-                confidence = entity.score();
-            }
-        }
-        
-        return Map.of("type", docType, "confidence", confidence);
-    }
-    
-    private static Map<String, Object> classifyWithBedrock(String text) {
-        String prompt = String.format(
-            "Classify this document as exactly one of: SCHEDULE_PRODUCTION, INVOICE_PRODUCTION, PURCHASE_ORDER, CUSTOMS_DECLARATION\n\n" +
-            "Guidelines:\n" +
-            "- INVOICE_PRODUCTION: Contains invoice number, customer, items, amounts, total\n" +
-            "- PURCHASE_ORDER: Contains PO number, vendor, items to purchase, delivery info\n" +
-            "- SCHEDULE_PRODUCTION: Contains production schedule, quantities, dates, line assignments\n" +
-            "- CUSTOMS_DECLARATION: Contains customs/declaration info, origin, destination, HS codes\n\n" +
-            "Respond with ONLY JSON: {\"type\": \"XXX\", \"confidence\": 0.95}\n\n" +
-            "Document:\n%s",
-            text.substring(0, Math.min(2000, text.length()))
-        );
-        
-        String requestBody = gson.toJson(Map.of(
-            "anthropic_version", "bedrock-2023-05-31",
-            "max_tokens", 100,
-            "messages", List.of(Map.of(
-                "role", "user",
-                "content", prompt
-            ))
-        ));
-        
-        software.amazon.awssdk.services.bedrockruntime.model.InvokeModelRequest request = 
-            software.amazon.awssdk.services.bedrockruntime.model.InvokeModelRequest.builder()
-                .modelId("anthropic.claude-3-haiku-20240307-v1:0")
-                .body(software.amazon.awssdk.core.SdkBytes.fromUtf8String(requestBody))
-                .build();
-        
-        software.amazon.awssdk.services.bedrockruntime.model.InvokeModelResponse response = 
-            bedrockClient.invokeModel(request);
-        
-        String responseBody = response.body().asUtf8String();
-        Map<String, Object> responseJson = gson.fromJson(responseBody, Map.class);
-        List<Map<String, Object>> content = (List<Map<String, Object>>) responseJson.get("content");
-        String claudeResponse = (String) content.get(0).get("text");
-        
-        // Parse Claude's JSON response
-        return gson.fromJson(claudeResponse, Map.class);
-    }
-    
-    private static int extractArchive(String archivePath, String destPath) {
-        try {
-            java.nio.file.Path archive = java.nio.file.Paths.get(archivePath);
-            java.nio.file.Path dest = java.nio.file.Paths.get(destPath);
-            
-            if (archivePath.endsWith(".zip")) {
-                return extractZip(archive, dest);
-            } else if (archivePath.endsWith(".tar") || archivePath.endsWith(".tar.gz")) {
-                return extractTar(archive, dest);
-            }
-            
-            log.warn("Unsupported archive format: {}", archivePath);
-            return 0;
-        } catch (Exception e) {
-            log.error("Error extracting archive", e);
-            return 0;
-        }
-    }
-    
-    private static int extractZip(java.nio.file.Path zipFile, java.nio.file.Path destDir) throws Exception {
-        int count = 0;
-        try (java.util.zip.ZipInputStream zis = new java.util.zip.ZipInputStream(
-                java.nio.file.Files.newInputStream(zipFile))) {
-            java.util.zip.ZipEntry entry;
-            while ((entry = zis.getNextEntry()) != null) {
-                if (!entry.isDirectory()) {
-                    java.nio.file.Path filePath = destDir.resolve(entry.getName());
-                    java.nio.file.Files.createDirectories(filePath.getParent());
-                    java.nio.file.Files.copy(zis, filePath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                    count++;
-                    log.info("Extracted: {}", entry.getName());
-                }
-                zis.closeEntry();
-            }
-        }
-        return count;
-    }
-    
-    private static int extractTar(java.nio.file.Path tarFile, java.nio.file.Path destDir) throws Exception {
-        int count = 0;
-        java.io.InputStream fileStream = java.nio.file.Files.newInputStream(tarFile);
-        
-        // Handle .tar.gz
-        if (tarFile.toString().endsWith(".gz")) {
-            fileStream = new java.util.zip.GZIPInputStream(fileStream);
-        }
-        
-        try (org.apache.commons.compress.archivers.tar.TarArchiveInputStream tis = 
-                new org.apache.commons.compress.archivers.tar.TarArchiveInputStream(fileStream)) {
-            org.apache.commons.compress.archivers.tar.TarArchiveEntry entry;
-            while ((entry = tis.getNextTarEntry()) != null) {
-                if (!entry.isDirectory()) {
-                    java.nio.file.Path filePath = destDir.resolve(entry.getName());
-                    java.nio.file.Files.createDirectories(filePath.getParent());
-                    java.nio.file.Files.copy(tis, filePath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                    count++;
-                    log.info("Extracted: {}", entry.getName());
-                }
-            }
-        }
-        return count;
-    }
-    
-    private static Map<String, Object> getConsensusClassification(Map<String, Object> classification) {
-        // Extract results from each method
-        Map<String, Object> regex = (Map<String, Object>) classification.get("regex");
-        Map<String, Object> comprehend = (Map<String, Object>) classification.getOrDefault("comprehend", Map.of());
-        Map<String, Object> bedrock = (Map<String, Object>) classification.getOrDefault("bedrock", Map.of());
-        
-        String regexType = (String) regex.get("type");
-        double regexConf = ((Number) regex.get("confidence")).doubleValue();
-        
-        String comprehendType = (String) comprehend.getOrDefault("type", "UNKNOWN");
-        double comprehendConf = comprehend.containsKey("confidence") ? 
-            ((Number) comprehend.get("confidence")).doubleValue() : 0.0;
-        
-        String bedrockType = (String) bedrock.getOrDefault("type", "UNKNOWN");
-        double bedrockConf = bedrock.containsKey("confidence") ? 
-            ((Number) bedrock.get("confidence")).doubleValue() : 0.0;
-        
-        // Voting: if 2+ agree, use that
-        if (regexType.equals(comprehendType) || regexType.equals(bedrockType)) {
-            return Map.of(
-                "type", regexType,
-                "confidence", Math.max(regexConf, Math.max(comprehendConf, bedrockConf)),
-                "method", "consensus"
-            );
-        }
-        
-        if (comprehendType.equals(bedrockType) && !comprehendType.equals("UNKNOWN")) {
-            return Map.of(
-                "type", comprehendType,
-                "confidence", (comprehendConf + bedrockConf) / 2,
-                "method", "consensus"
-            );
-        }
-        
-        // No consensus - use highest confidence
-        if (regexConf >= comprehendConf && regexConf >= bedrockConf) {
-            return Map.of("type", regexType, "confidence", regexConf, "method", "regex");
-        } else if (bedrockConf >= comprehendConf) {
-            return Map.of("type", bedrockType, "confidence", bedrockConf, "method", "bedrock");
-        } else {
-            return Map.of("type", comprehendType, "confidence", comprehendConf, "method", "comprehend");
-        }
-    }
-    
-    private static Map<String, Object> extractFieldsWithBedrock(String text, String docType) {
-        try {
-            String schema = getSchemaForDocType(docType);
-            String prompt = String.format(
-                "Extract fields from this document and return ONLY a JSON object (no markdown, no explanation).\n\nSchema:\n%s\n\nDocument:\n%s\n\nJSON:",
-                schema, text.substring(0, Math.min(2000, text.length()))
-            );
-            
-            String requestBody = gson.toJson(Map.of(
-                "anthropic_version", "bedrock-2023-05-31",
-                "max_tokens", 1000,
-                "messages", List.of(Map.of(
-                    "role", "user",
-                    "content", prompt
-                ))
-            ));
-            
-            software.amazon.awssdk.services.bedrockruntime.model.InvokeModelRequest request = 
-                software.amazon.awssdk.services.bedrockruntime.model.InvokeModelRequest.builder()
-                    .modelId("anthropic.claude-3-haiku-20240307-v1:0")
-                    .body(software.amazon.awssdk.core.SdkBytes.fromUtf8String(requestBody))
-                    .build();
-            
-            software.amazon.awssdk.services.bedrockruntime.model.InvokeModelResponse response = bedrockClient.invokeModel(request);
-            String responseBody = response.body().asUtf8String();
-            Map<String, Object> responseMap = gson.fromJson(responseBody, Map.class);
-            List<Map<String, Object>> content = (List<Map<String, Object>>) responseMap.get("content");
-            String extractedText = (String) content.get(0).get("text");
-            
-            // Extract JSON from response (handle markdown code blocks)
-            extractedText = extractedText.trim();
-            if (extractedText.startsWith("```")) {
-                int start = extractedText.indexOf('{');
-                int end = extractedText.lastIndexOf('}');
-                if (start >= 0 && end > start) {
-                    extractedText = extractedText.substring(start, end + 1);
-                }
-            }
-            
-            // Find first { and last }
-            int jsonStart = extractedText.indexOf('{');
-            int jsonEnd = extractedText.lastIndexOf('}');
-            if (jsonStart >= 0 && jsonEnd > jsonStart) {
-                extractedText = extractedText.substring(jsonStart, jsonEnd + 1);
-            }
-            
-            return gson.fromJson(extractedText, Map.class);
-            
-        } catch (Exception e) {
-            log.error("Bedrock field extraction failed: {}", e.getMessage());
-            return Map.of("error", e.getMessage());
-        }
-    }
-    
-    private static String getSchemaForDocType(String docType) {
-        // Check for custom schema first
-        if (customSchemas.containsKey(docType)) {
-            return customSchemas.get(docType);
-        }
-        
-        // Fall back to built-in schemas
-        return switch (docType) {
-            case "INVOICE_PRODUCTION" -> """
-                {
-                  "invoice_number": "string",
-                  "date": "string",
-                  "customer": "string",
-                  "total_amount": "string",
-                  "items": [{"name": "string", "amount": "string"}]
-                }
-                """;
-            case "PURCHASE_ORDER" -> """
-                {
-                  "po_number": "string",
-                  "date": "string",
-                  "vendor": "string",
-                  "total_amount": "string",
-                  "items": [{"name": "string", "quantity": "string"}]
-                }
-                """;
-            case "SCHEDULE_PRODUCTION" -> """
-                {
-                  "date": "string",
-                  "product": "string",
-                  "quantity": "string",
-                  "start_time": "string",
-                  "end_time": "string",
-                  "line": "string"
-                }
-                """;
-            case "CUSTOMS_DECLARATION" -> """
-                {
-                  "declaration_number": "string",
-                  "date": "string",
-                  "origin": "string",
-                  "destination": "string",
-                  "items": [{"description": "string", "value": "string"}]
-                }
-                """;
-            default -> "{}";
-        };
     }
 }

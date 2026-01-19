@@ -208,9 +208,8 @@ public class QATestSuite {
     public void testCustomSchema() throws Exception {
         System.out.println("\n=== TEST: Custom Schema Management ===");
         
-        // This would need to be tested via HTTP API
-        // For now, just verify the storage exists
-        assertNotNull("Custom schemas map should exist", MCPServer.class.getDeclaredField("customSchemas"));
+        // Verify SchemaManager exists and is accessible
+        assertNotNull("SchemaManager class should exist", Class.forName("com.hulft.mcp.SchemaManager"));
         
         System.out.println("✓ Custom schema support verified");
     }
