@@ -3,6 +3,9 @@ package com.hulft.mcp;
 import com.google.gson.Gson;
 import io.javalin.Javalin;
 import io.javalin.http.Context;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import lombok.extern.slf4j.Slf4j;
 import software.amazon.awssdk.services.textract.model.Block;
 import software.amazon.awssdk.services.textract.model.BlockType;
@@ -75,6 +78,15 @@ public class MCPServer {
     private static final ThreadLocal<Float> ocrConfidence = new ThreadLocal<>();
 
     @SuppressWarnings("PMD.CloseResource") // Server runs until shutdown
+    private static final Map<String, String> sessions = new ConcurrentHashMap<>();
+    private static final String SUPPORTED_PROTOCOL_VERSION = "2025-11-25";
+    private static final Set<String> ALLOWED_ORIGINS = Set.of(
+        "http://localhost",
+        "https://localhost",
+        "http://127.0.0.1",
+        "https://127.0.0.1"
+    );
+
     public static void main(final String[] args) {
         log.info("Starting MCP Server");
         
@@ -87,13 +99,24 @@ public class MCPServer {
     }
 
     private static void handlePost(final Context ctx) {
+        // 1. Validate Origin header (DNS rebinding protection)
+        final String origin = ctx.header("Origin");
+        if (origin != null && !isAllowedOrigin(origin)) {
+            ctx.status(403).result("Forbidden");
+            return;
+        }
+
+        // 2. Validate protocol version
+        final String protocolVersion = ctx.header("MCP-Protocol-Version");
+        if (protocolVersion != null && !SUPPORTED_PROTOCOL_VERSION.equals(protocolVersion)) {
+            ctx.status(400).json(createError(-32600, "Unsupported protocol version: " + protocolVersion, null));
+            return;
+        }
+
+        // 3. Validate Accept header
         final String accept = ctx.header("Accept");
-        final String auth = ctx.header("Authorization");
-        
-        log.info("Authorization header: {}", auth != null ? "Bearer ***" : "none");
-        
         if (accept == null || !accept.contains("application/json") && !accept.contains("text/event-stream")) {
-            ctx.status(400).result("Accept header must include application/json or text/event-stream");
+            ctx.status(400).json(createError(-32600, "Accept header must include application/json or text/event-stream", null));
             return;
         }
 
@@ -104,6 +127,15 @@ public class MCPServer {
         final String method = (String) request.get("method");
         final Object id = request.get("id");
 
+        // 4. Validate session (except for initialize)
+        if (!"initialize".equals(method)) {
+            final String sessionId = ctx.header("MCP-Session-Id");
+            if (sessionId != null && !sessions.containsKey(sessionId)) {
+                ctx.status(404).json(createError(-32600, "Session not found", null));
+                return;
+            }
+        }
+
         // Handle notifications (no response needed)
         if (id == null) {
             log.info("✓ Received notification: {} - Accepting with 202", method);
@@ -113,6 +145,14 @@ public class MCPServer {
 
         final Map<String, Object> response = createResponse(method, request, id);
         
+        // 5. Add session ID for initialize response
+        if ("initialize".equals(method) && response.containsKey("result")) {
+            final String sessionId = UUID.randomUUID().toString();
+            sessions.put(sessionId, "active");
+            ctx.header("MCP-Session-Id", sessionId);
+            log.info("Created session: {}", sessionId);
+        }
+        
         ctx.contentType("application/json");
         ctx.json(response);
         if (log.isInfoEnabled()) {
@@ -121,15 +161,44 @@ public class MCPServer {
     }
 
     private static void handleGet(final Context ctx) {
+        // 1. Validate Origin header
+        final String origin = ctx.header("Origin");
+        if (origin != null && !isAllowedOrigin(origin)) {
+            ctx.status(403).result("Forbidden");
+            return;
+        }
+
+        // 2. Validate Accept header for SSE
         final String accept = ctx.header("Accept");
         if (accept == null || !accept.contains("text/event-stream")) {
             ctx.status(405).result("Method Not Allowed");
             return;
         }
 
-        log.info("GET /mcp - SSE stream requested");
-        ctx.contentType("text/event-stream");
-        ctx.result(""); // Keep connection open for SSE
+        // 3. SSE not implemented yet
+        log.info("GET /mcp - SSE stream requested but not implemented");
+        ctx.status(405).result("SSE streaming not yet implemented");
+    }
+
+    private static boolean isAllowedOrigin(final String origin) {
+        if (origin == null) {
+            return true;
+        }
+        return ALLOWED_ORIGINS.stream().anyMatch(origin::startsWith);
+    }
+
+    private static Map<String, Object> createError(final int code, final String message, final Object id) {
+        final Map<String, Object> error = new HashMap<>();
+        error.put("code", code);
+        error.put("message", message);
+        
+        final Map<String, Object> response = new HashMap<>();
+        response.put("jsonrpc", "2.0");
+        response.put("error", error);
+        if (id != null) {
+            response.put("id", id);
+        }
+        return response;
     }
 
     @SuppressWarnings({"PMD.AvoidReassigningParameters", "PMD.CognitiveComplexity"}) // Intentional ID conversion, complex routing
