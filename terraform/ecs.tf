@@ -13,9 +13,9 @@ resource "aws_ecs_cluster" "main" {
   }
 }
 
-# ECR Repository
+# ECR Repository (shared across environments)
 resource "aws_ecr_repository" "main" {
-  name                 = var.app_name
+  name                 = "hulft-mcp"
   image_tag_mutability = "MUTABLE"
 
   image_scanning_configuration {
@@ -23,8 +23,8 @@ resource "aws_ecr_repository" "main" {
   }
 
   tags = {
-    Name        = var.app_name
-    Environment = var.environment
+    Name        = "hulft-mcp"
+    Environment = "shared"
   }
 }
 
@@ -134,7 +134,7 @@ resource "aws_ecs_task_definition" "main" {
   container_definitions = jsonencode([{
     name  = var.app_name
     image = "${aws_ecr_repository.main.repository_url}:latest"
-    
+
     portMappings = [{
       containerPort = var.container_port
       protocol      = "tcp"
