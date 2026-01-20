@@ -6,7 +6,6 @@ import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.junit.Test;
 import java.io.ByteArrayOutputStream;
-import java.util.Base64;
 
 public class DocumentGeneratorTest {
 

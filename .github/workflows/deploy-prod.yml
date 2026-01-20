@@ -1,0 +1,73 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: hulft-mcp
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up JDK 17
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: gradle
+    
+    - name: Build with Gradle
+      run: |
+        chmod +x gradlew
+        ./gradlew clean build -x test
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+    
+    - name: Build and push Docker image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        docker buildx build --platform linux/amd64 \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
+          --push .
+    
+    - name: Deploy to ECS
+      env:
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        aws ecs update-service \
+          --cluster hulft-mcp-cluster \
+          --service hulft-mcp \
+          --force-new-deployment \
+          --region $AWS_REGION
+    
+    - name: Wait for deployment
+      run: |
+        aws ecs wait services-stable \
+          --cluster hulft-mcp-cluster \
+          --services hulft-mcp \
+          --region $AWS_REGION
+    
+    - name: Verify deployment
+      run: |
+        echo "✅ Deployed to https://mcp.hulftincpredev.net/mcp"

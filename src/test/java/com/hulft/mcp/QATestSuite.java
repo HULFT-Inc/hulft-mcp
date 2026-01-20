@@ -164,14 +164,20 @@ public class QATestSuite {
             "type", "pdf"
         ));
         
+        // Skip if AWS credentials not available (CI environment)
+        if (System.getenv("AWS_REGION") == null) {
+            System.out.println("⊘ Skipping field extraction test (no AWS credentials)");
+            return;
+        }
+        
         MCPServer.handleMultiFileUpload(files);
         
-        Path metaFile = Files.walk(Paths.get("jobs"))
+        final Path metaFile = Files.walk(Paths.get("jobs"))
             .filter(p -> p.toString().endsWith("meta.json"))
             .findFirst()
             .orElseThrow();
         
-        String metaJson = Files.readString(metaFile);
+        final String metaJson = Files.readString(metaFile);
         assertTrue("Should contain extracted fields", metaJson.contains("extractedFields"));
         assertTrue("Should extract invoice number", metaJson.contains("invoice_number"));
         
@@ -182,10 +188,16 @@ public class QATestSuite {
     public void testOCRConfidence() throws Exception {
         System.out.println("\n=== TEST: OCR Confidence Tracking ===");
         
-        byte[] pdfBytes = Files.readAllBytes(Paths.get("test-pdfs/invoice_production.pdf"));
-        String base64 = Base64.getEncoder().encodeToString(pdfBytes);
+        // Skip if AWS credentials not available (CI environment)
+        if (System.getenv("AWS_REGION") == null) {
+            System.out.println("⊘ Skipping OCR confidence test (no AWS credentials)");
+            return;
+        }
         
-        List<Map<String, Object>> files = List.of(Map.of(
+        final byte[] pdfBytes = Files.readAllBytes(Paths.get("test-pdfs/invoice_production.pdf"));
+        final String base64 = Base64.getEncoder().encodeToString(pdfBytes);
+        
+        final List<Map<String, Object>> files = List.of(Map.of(
             "filename", "invoice.pdf",
             "content", base64,
             "type", "pdf"
@@ -193,12 +205,12 @@ public class QATestSuite {
         
         MCPServer.handleMultiFileUpload(files);
         
-        Path metaFile = Files.walk(Paths.get("jobs"))
+        final Path metaFile = Files.walk(Paths.get("jobs"))
             .filter(p -> p.toString().endsWith("meta.json"))
             .findFirst()
             .orElseThrow();
         
-        String metaJson = Files.readString(metaFile);
+        final String metaJson = Files.readString(metaFile);
         assertTrue("Should contain OCR confidence", metaJson.contains("ocrConfidence"));
         
         System.out.println("✓ OCR confidence tracked");
@@ -381,11 +393,17 @@ public class QATestSuite {
     public void testEndToEndWorkflow() throws Exception {
         System.out.println("\n=== TEST: End-to-End Workflow ===");
         
-        // 1. Upload document
-        byte[] pdfBytes = Files.readAllBytes(Paths.get("test-pdfs/invoice_production.pdf"));
-        String base64 = Base64.getEncoder().encodeToString(pdfBytes);
+        // Skip if AWS credentials not available (CI environment)
+        if (System.getenv("AWS_REGION") == null) {
+            System.out.println("⊘ Skipping end-to-end test (no AWS credentials)");
+            return;
+        }
         
-        List<Map<String, Object>> files = List.of(Map.of(
+        // 1. Upload document
+        final byte[] pdfBytes = Files.readAllBytes(Paths.get("test-pdfs/invoice_production.pdf"));
+        final String base64 = Base64.getEncoder().encodeToString(pdfBytes);
+        
+        final List<Map<String, Object>> files = List.of(Map.of(
             "filename", "e2e_test.pdf",
             "content", base64,
             "type", "pdf"
