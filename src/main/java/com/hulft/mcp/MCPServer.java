@@ -175,9 +175,9 @@ public class MCPServer {
             return;
         }
 
-        // 3. SSE not implemented yet
-        log.info("GET /mcp - SSE stream requested but not implemented");
-        ctx.status(405).result("SSE streaming not yet implemented");
+        // 3. Return 405 - SSE streaming optional per spec
+        log.info("GET /mcp - SSE streaming not supported");
+        ctx.status(405).result("SSE streaming not supported. Use POST for requests.");
     }
 
     private static boolean isAllowedOrigin(final String origin) {
