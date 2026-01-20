@@ -10,7 +10,7 @@ output "alb_dns_name" {
 
 output "service_url" {
   description = "Service URL"
-  value       = "http://${var.domain_name}/mcp"
+  value       = var.create_dns_record ? "http://${var.domain_name}/mcp" : "http://${aws_lb.main.dns_name}/mcp"
 }
 
 output "ecs_cluster_name" {

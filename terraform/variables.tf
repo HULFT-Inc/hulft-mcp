@@ -63,3 +63,9 @@ variable "memory" {
   type        = string
   default     = "1024"
 }
+
+variable "create_dns_record" {
+  description = "Create Route53 DNS record"
+  type        = bool
+  default     = false
+}
