@@ -41,40 +41,40 @@ import java.util.Map;
 })
 public class MCPServer {
     private static final Gson gson = new Gson();
-    
+
     // Service components
     private static final JobManager jobManager = new JobManager();
     private static final SchemaManager schemaManager = new SchemaManager();
     private static final ArchiveExtractor archiveExtractor = new ArchiveExtractor();
     private static final MarkdownConverter markdownConverter = new MarkdownConverter();
-    
+
     // AWS clients
-    private static final software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider credentialsProvider = 
+    private static final software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider credentialsProvider =
         software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider.create("predev");
-    
-    private static final software.amazon.awssdk.services.textract.TextractClient textractClient = 
+
+    private static final software.amazon.awssdk.services.textract.TextractClient textractClient =
         software.amazon.awssdk.services.textract.TextractClient.builder()
             .region(software.amazon.awssdk.regions.Region.US_EAST_1)
             .credentialsProvider(credentialsProvider)
             .build();
-    
+
     private static final software.amazon.awssdk.services.comprehend.ComprehendClient comprehendClient =
         software.amazon.awssdk.services.comprehend.ComprehendClient.builder()
             .region(software.amazon.awssdk.regions.Region.US_EAST_1)
             .credentialsProvider(credentialsProvider)
             .build();
-    
+
     private static final software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient bedrockClient =
         software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient.builder()
             .region(software.amazon.awssdk.regions.Region.US_EAST_1)
             .credentialsProvider(credentialsProvider)
             .build();
-    
+
     // Service instances
     private static final TextExtractor textExtractor = new TextExtractor(textractClient);
     private static final DocumentClassifier classifier = new DocumentClassifier(comprehendClient, bedrockClient);
     private static final FieldExtractor fieldExtractor = new FieldExtractor(bedrockClient, schemaManager);
-    
+
     private static final ThreadLocal<Float> ocrConfidence = new ThreadLocal<>();
 
     @SuppressWarnings("PMD.CloseResource") // Server runs until shutdown
@@ -89,13 +89,23 @@ public class MCPServer {
 
     public static void main(final String[] args) {
         log.info("Starting HULFT MCP Server v2.1.0");
-        
+
         final Javalin app = Javalin.create().start("0.0.0.0", 3333);
 
         app.post("/mcp", ctx -> handlePost(ctx));
         app.get("/mcp", ctx -> handleGet(ctx));
+        app.get("/health", ctx -> handleHealth(ctx));
 
         log.info("HULFT MCP Server ready at http://localhost:3333/mcp");
+    }
+
+    private static void handleHealth(final Context ctx) {
+        final Map<String, Object> health = new HashMap<>();
+        health.put("status", "healthy");
+        health.put("version", "2.1.0");
+        health.put("service", "hulft-mcp");
+        health.put("timestamp", System.currentTimeMillis());
+        ctx.json(health);
     }
 
     private static void handlePost(final Context ctx) {
@@ -144,7 +154,7 @@ public class MCPServer {
         }
 
         final Map<String, Object> response = createResponse(method, request, id);
-        
+
         // 5. Add session ID for initialize response
         if ("initialize".equals(method) && response.containsKey("result")) {
             final String sessionId = UUID.randomUUID().toString();
@@ -152,7 +162,7 @@ public class MCPServer {
             ctx.header("MCP-Session-Id", sessionId);
             log.info("Created session: {}", sessionId);
         }
-        
+
         ctx.contentType("application/json");
         ctx.json(response);
         if (log.isInfoEnabled()) {
@@ -191,7 +201,7 @@ public class MCPServer {
         final Map<String, Object> error = new HashMap<>();
         error.put("code", code);
         error.put("message", message);
-        
+
         final Map<String, Object> response = new HashMap<>();
         response.put("jsonrpc", "2.0");
         response.put("error", error);
@@ -210,7 +220,7 @@ public class MCPServer {
                 id = (int) d;
             }
         }
-        
+
         return switch (method) {
             case "initialize" -> {
                 final Map<String, Object> params = (Map<String, Object>) request.get("params");
@@ -349,7 +359,7 @@ public class MCPServer {
                 final Map<String, Object> params = (Map<String, Object>) request.get("params");
                 final String toolName = (String) params.get("name");
                 final Map<String, Object> arguments = (Map<String, Object>) params.get("arguments");
-                
+
                 final String resultText = switch (toolName) {
                     case "echo" -> "Echo: " + arguments.get("text");
                     case "list_resources" -> "Available resources:\n- file:///example.txt (Example File) - An example text resource";
@@ -364,7 +374,7 @@ public class MCPServer {
                     case "upload_files" -> {
                         final List<Map<String, Object>> files = (List<Map<String, Object>>) arguments.get("files");
                         final boolean async = arguments.containsKey("async") && (Boolean) arguments.get("async");
-                        
+
                         if (async) {
                             final String jobId = jobManager.createJob();
                             jobManager.submitJob(jobId, () -> {
@@ -405,7 +415,7 @@ public class MCPServer {
                             yield "No custom schemas defined. Using built-in schemas.";
                         } else {
                             final StringBuilder sb = new StringBuilder("Custom schemas:\n");
-                            schemas.forEach((type, schema) -> 
+                            schemas.forEach((type, schema) ->
                                 sb.append("- ").append(type).append('\n'));
                             yield sb.toString();
                         }
@@ -416,7 +426,7 @@ public class MCPServer {
                     }
                     default -> "Unknown tool: " + toolName;
                 };
-                
+
                 yield Map.of(
                     "jsonrpc", "2.0",
                     "id", id,
@@ -480,7 +490,7 @@ public class MCPServer {
                 final Map<String, Object> params = (Map<String, Object>) request.get("params");
                 final Map<String, Object> arguments = (Map<String, Object>) params.get("arguments");
                 final String code = (String) arguments.get("code");
-                
+
                 yield Map.of(
                     "jsonrpc", "2.0",
                     "id", id,
@@ -508,7 +518,7 @@ public class MCPServer {
             );
         };
     }
-    
+
     @SuppressWarnings({"PMD.NcssCount", "PMD.CognitiveComplexity"}) // Complex multi-file processing
     static String handleMultiFileUpload(final List<Map<String, Object>> files) {
         try {
@@ -517,11 +527,11 @@ public class MCPServer {
             metadata.put("uploadTime", Instant.now().toString());
             metadata.put("fileCount", files.size());
             List<Map<String, Object>> fileMetadata = new ArrayList<>();
-            
+
             // Check if any file is an archive
             final boolean hasArchive = files.stream()
                 .anyMatch(f -> "archive".equals(f.get("type")));
-            
+
             if (hasArchive) {
                 // All files go into one job folder
                 final String jobId = java.util.UUID.randomUUID().toString();
@@ -530,41 +540,41 @@ public class MCPServer {
                 metadata.put("type", "archive");
                 result.append(String.format("Job ID: %s (archive extraction)\n", jobId));
                 result.append(String.format("Files: %d\n\n", files.size()));
-                
+
                 for (Map<String, Object> file : files) {
                     final String filename = (String) file.get("filename");
                     final String content = (String) file.get("content");
                     final String type = (String) file.get("type");
-                    
+
                     final byte[] fileBytes = java.util.Base64.getDecoder().decode(content);
-                    
+
                     // Detect actual file type
                     final String detectedType = detectFileType(fileBytes, filename);
                     log.info("File {} - Declared: {}, Detected: {}", filename, type, detectedType);
-                    
+
                     final Map<String, Object> fileMeta = new HashMap<>();
                     fileMeta.put("filename", filename);
                     fileMeta.put("declaredType", type);
                     fileMeta.put("detectedType", detectedType);
                     fileMeta.put("size", fileBytes.length);
-                    
+
                     if ("archive".equals(type)) {
                         final Path archivePath = Paths.get(jobPath, filename);
                         Files.write(archivePath, fileBytes);
-                        
+
                         // Extract archive
                         final int extractedCount = archiveExtractor.extract(archivePath.toString(), jobPath);
-                        result.append(String.format("✓ %s (archive) - %d bytes - extracted %d files\n", 
+                        result.append(String.format("✓ %s (archive) - %d bytes - extracted %d files\n",
                             filename, fileBytes.length, extractedCount));
                     } else {
                         final Path filePath = Paths.get(jobPath, filename);
                         Files.write(filePath, fileBytes);
-                        
+
                         // Extract text and structured data
                         String textractResult;
                         Map<String, Object> structuredData = new HashMap<>();
                         String markdown = "";
-                        
+
                         if ("excel".equals(type) || detectedType.contains("spreadsheet") || detectedType.contains("ooxml")) {
                             textractResult = extractExcelText(fileBytes);
                             structuredData = extractStructuredFromExcel(fileBytes);
@@ -574,46 +584,46 @@ public class MCPServer {
                             structuredData = extractStructuredWithTextract(fileBytes);
                             markdown = convertToMarkdown(textractResult, structuredData);
                         }
-                        
+
                         fileMeta.put("textractAnalysis", textractResult);
                         fileMeta.put("structuredData", structuredData);
                         fileMeta.put("markdown", markdown);
-                        
+
                         result.append(String.format("✓ %s (%s) - %d bytes\n", filename, type, fileBytes.length));
                     }
-                    
+
                     fileMetadata.add(fileMeta);
                     log.info("Saved {} to {}", filename, jobPath);
                 }
-                
+
                 metadata.put("files", fileMetadata);
                 saveMetadata(jobPath, metadata);
                 result.append(String.format("\nPath: %s", jobPath));
             } else {
                 // Each file gets its own job folder
                 result.append(String.format("Files: %d (separate jobs)\n\n", files.size()));
-                
+
                 for (Map<String, Object> file : files) {
                     final String filename = (String) file.get("filename");
                     final String content = (String) file.get("content");
                     final String type = (String) file.get("type");
-                    
+
                     final String jobId = java.util.UUID.randomUUID().toString();
                     final String jobPath = createJobFolder(jobId);
                     final byte[] fileBytes = java.util.Base64.getDecoder().decode(content);
-                    
+
                     // Detect actual file type
                     final String detectedType = detectFileType(fileBytes, filename);
                     log.info("File {} - Declared: {}, Detected: {}", filename, type, detectedType);
-                    
+
                     final Path filePath = Paths.get(jobPath, filename);
                     Files.write(filePath, fileBytes);
-                    
+
                     // Extract text and structured data
                     String textractResult;
                     Map<String, Object> structuredData = new HashMap<>();
                     String markdown = "";
-                    
+
                     if ("excel".equals(type) || detectedType.contains("spreadsheet") || detectedType.contains("ooxml")) {
                         textractResult = extractExcelText(fileBytes);
                         structuredData = extractStructuredFromExcel(fileBytes);
@@ -623,7 +633,7 @@ public class MCPServer {
                         structuredData = extractStructuredWithTextract(fileBytes);
                         markdown = convertToMarkdown(textractResult, structuredData);
                     }
-                    
+
                     // Save metadata for this job
                     final Map<String, Object> jobMeta = new HashMap<>();
                     jobMeta.put("jobId", jobId);
@@ -636,168 +646,168 @@ public class MCPServer {
                     jobMeta.put("textractAnalysis", textractResult);
                     jobMeta.put("structuredData", structuredData);
                     jobMeta.put("markdown", markdown);
-                    
+
                     // Add OCR confidence if available
                     Float confidence = ocrConfidence.get();
                     if (confidence != null) {
                         jobMeta.put("ocrConfidence", confidence);
                         ocrConfidence.remove();
                     }
-                    
+
                     // Classify document
                     final Map<String, Object> classification = classifier.classify(textractResult);
                     final Map<String, Object> consensus = classifier.getConsensus(classification);
-                    
+
                     // Extract structured fields with Bedrock
                     final Map<String, Object> extractedFields = fieldExtractor.extractFields(textractResult, (String) consensus.get("type"));
-                    
+
                     jobMeta.put("classification", classification);
                     jobMeta.put("finalClassification", consensus);
                     jobMeta.put("extractedFields", extractedFields);
-                    
+
                     saveMetadata(jobPath, jobMeta);
-                    
-                    result.append(String.format("✓ %s (%s)\n  Job ID: %s\n  Size: %d bytes\n\n", 
+
+                    result.append(String.format("✓ %s (%s)\n  Job ID: %s\n  Size: %d bytes\n\n",
                         filename, type, jobId, fileBytes.length));
                     log.info("Saved {} to {}", filename, filePath);
                 }
             }
-            
+
             return result.toString();
-            
+
         } catch (Exception e) {
             log.error("Error uploading files", e);
             return "Error uploading files: " + e.getMessage();
         }
     }
-    
+
     @SuppressWarnings("PMD.GuardLogStatement") // Simple log, not expensive
     private static String handlePdfUpload(final String filename, final String base64Content) {
         log.info("PDF upload: {} ({} bytes base64)", filename, base64Content.length());
-        
+
         try {
             final String jobId = java.util.UUID.randomUUID().toString();
             final String jobPath = createJobFolder(jobId);
             final byte[] pdfBytes = java.util.Base64.getDecoder().decode(base64Content);
-            
+
             final Path filePath = Paths.get(jobPath, filename);
             Files.write(filePath, pdfBytes);
-            
+
             log.info("PDF saved to: {}", filePath);
-            
+
             // TODO: Extract text from PDF using Apache PDFBox
             // TODO: Index PDF content for search
             // TODO: Extract metadata
-            
-            return String.format("PDF uploaded successfully!\nJob ID: %s\nPath: %s\nSize: %d bytes", 
+
+            return String.format("PDF uploaded successfully!\nJob ID: %s\nPath: %s\nSize: %d bytes",
                 jobId, filePath, pdfBytes.length);
         } catch (Exception e) {
             log.error("Error uploading PDF", e);
             return "Error uploading PDF: " + e.getMessage();
         }
     }
-    
+
     private static String handleExcelUpload(final String filename, final String base64Content) {
         log.info("Excel upload: {} ({} bytes base64)", filename, base64Content.length());
-        
+
         try {
             final String jobId = java.util.UUID.randomUUID().toString();
             final String jobPath = createJobFolder(jobId);
             final byte[] excelBytes = java.util.Base64.getDecoder().decode(base64Content);
-            
+
             final Path filePath = Paths.get(jobPath, filename);
             Files.write(filePath, excelBytes);
-            
+
             log.info("Excel saved to: {}", filePath);
-            
+
             // TODO: Parse Excel using Apache POI
             // TODO: Convert to JSON or CSV
             // TODO: Store data in database
-            
-            return String.format("Excel uploaded successfully!\nJob ID: %s\nPath: %s\nSize: %d bytes", 
+
+            return String.format("Excel uploaded successfully!\nJob ID: %s\nPath: %s\nSize: %d bytes",
                 jobId, filePath, excelBytes.length);
         } catch (Exception e) {
             log.error("Error uploading Excel", e);
             return "Error uploading Excel: " + e.getMessage();
         }
     }
-    
+
     private static String handleImageUpload(final String filename, final String base64Content) {
         log.info("Image upload: {} ({} bytes base64)", filename, base64Content.length());
-        
+
         try {
             final String jobId = java.util.UUID.randomUUID().toString();
             final String jobPath = createJobFolder(jobId);
             final byte[] imageBytes = java.util.Base64.getDecoder().decode(base64Content);
-            
+
             final Path filePath = Paths.get(jobPath, filename);
             Files.write(filePath, imageBytes);
-            
+
             log.info("Image saved to: {}", filePath);
-            
+
             // TODO: Validate image format
             // TODO: Resize/optimize image
             // TODO: Extract EXIF metadata
             // TODO: Generate thumbnail
-            
-            return String.format("Image uploaded successfully!\nJob ID: %s\nPath: %s\nSize: %d bytes", 
+
+            return String.format("Image uploaded successfully!\nJob ID: %s\nPath: %s\nSize: %d bytes",
                 jobId, filePath, imageBytes.length);
         } catch (Exception e) {
             log.error("Error uploading image", e);
             return "Error uploading image: " + e.getMessage();
         }
     }
-    
+
     private static String createJobFolder(final String jobId) throws java.io.IOException {
         java.time.LocalDate now = java.time.LocalDate.now();
         final String year = String.valueOf(now.getYear());
         final String month = String.format("%02d", now.getMonthValue());
         final String day = String.format("%02d", now.getDayOfMonth());
-        
+
         final String jobPath = String.format("jobs/%s/%s/%s/%s", year, month, day, jobId);
         final Path path = Paths.get(jobPath);
         Files.createDirectories(path);
-        
+
         log.info("Created job folder: {}", jobPath);
         return jobPath;
     }
-    
+
     private static String detectFileType(final byte[] fileBytes, final String filename) {
         try {
             // Use Apache Tika to detect MIME type from content
             org.apache.tika.Tika tika = new org.apache.tika.Tika();
             final String mimeType = tika.detect(fileBytes);
-            
+
             log.info("Detected MIME type for {}: {}", filename, mimeType);
-            
+
             // Map MIME type to our file types
             if (mimeType.contains("pdf")) return "pdf";
             if (mimeType.contains("spreadsheet") || mimeType.contains("excel")) return "excel";
             if (mimeType.contains("image")) return "image";
             if (mimeType.contains("zip") || mimeType.contains("tar") || mimeType.contains("archive")) return "archive";
-            
+
             return mimeType;
         } catch (Exception e) {
             log.error("Error detecting file type", e);
             return "unknown";
         }
     }
-    
+
     private static String analyzeWithTextract(final byte[] fileBytes, final String filename) {
         try {
-            software.amazon.awssdk.services.textract.model.DetectDocumentTextRequest request = 
+            software.amazon.awssdk.services.textract.model.DetectDocumentTextRequest request =
                 software.amazon.awssdk.services.textract.model.DetectDocumentTextRequest.builder()
                     .document(software.amazon.awssdk.services.textract.model.Document.builder()
                         .bytes(software.amazon.awssdk.core.SdkBytes.fromByteArray(fileBytes))
                         .build())
                     .build();
-            
-            software.amazon.awssdk.services.textract.model.DetectDocumentTextResponse response = 
+
+            software.amazon.awssdk.services.textract.model.DetectDocumentTextResponse response =
                 textractClient.detectDocumentText(request);
-            
+
             final StringBuilder text = new StringBuilder();
             final List<Float> confidences = new ArrayList<>();
-            
+
             for (Block block : response.blocks()) {
                 if (block.blockType() == BlockType.LINE) {
                     text.append(block.text()).append('\n');
@@ -806,27 +816,27 @@ public class MCPServer {
                     }
                 }
             }
-            
+
             // Calculate average confidence
             final float avgConfidence = confidences.isEmpty()
                 ? 0
                 : (float) confidences.stream().mapToDouble(Float::doubleValue).average().orElse(0);
-            
+
             final String extractedText = text.toString();
-            log.info("Textract extracted {} characters from {} (avg confidence: {:.2f}%)", 
+            log.info("Textract extracted {} characters from {} (avg confidence: {:.2f}%)",
                 extractedText.length(), filename, avgConfidence);
-            
+
             // Store confidence in thread-local for metadata
             ocrConfidence.set(avgConfidence);
-            
+
             return extractedText;
-            
+
         } catch (Exception e) {
             log.error("Error with Textract analysis", e);
             return "Textract analysis failed: " + e.getMessage();
         }
     }
-    
+
     private static String extractExcelText(final byte[] fileBytes) {
         try {
             org.apache.poi.ss.usermodel.Workbook workbook = org.apache.poi.ss.usermodel.WorkbookFactory.create(new java.io.ByteArrayInputStream(fileBytes));
@@ -846,19 +856,19 @@ public class MCPServer {
             return "Excel extraction failed: " + e.getMessage();
         }
     }
-    
+
     private static Map<String, Object> extractStructuredWithTextract(final byte[] fileBytes) {
         final Map<String, Object> result = new HashMap<>();
-        
+
         // Extract tables with Tabula
         try {
             java.io.File tempFile = java.io.File.createTempFile("doc", ".pdf");
             Files.write(tempFile.toPath(), fileBytes);
-            
+
             org.apache.pdfbox.pdmodel.PDDocument document = org.apache.pdfbox.pdmodel.PDDocument.load(tempFile);
             technology.tabula.ObjectExtractor extractor = new technology.tabula.ObjectExtractor(document);
             technology.tabula.PageIterator pages = extractor.extract();
-            
+
             List<List<List<String>>> allTables = new ArrayList<>();
             while (pages.hasNext()) {
                 technology.tabula.Page page = pages.next();
@@ -877,27 +887,27 @@ public class MCPServer {
             }
             extractor.close();
             tempFile.delete();
-            
+
             result.put("tables", allTables);
         } catch (Exception e) {
             log.warn("Tabula extraction failed: {}", e.getMessage());
             result.put("tables", List.of());
         }
-        
+
         result.put("keyValues", Map.of());
         return result;
     }
-    
+
     private static Map<String, Object> extractStructuredFromExcel(final byte[] fileBytes) {
         try {
             org.apache.poi.ss.usermodel.Workbook workbook = org.apache.poi.ss.usermodel.WorkbookFactory.create(new java.io.ByteArrayInputStream(fileBytes));
             final Map<String, Object> result = new HashMap<>();
             List<Map<String, Object>> sheets = new ArrayList<>();
-            
+
             for (org.apache.poi.ss.usermodel.Sheet sheet : workbook) {
                 final Map<String, Object> sheetData = new HashMap<>();
                 sheetData.put("name", sheet.getSheetName());
-                
+
                 List<List<String>> rows = new ArrayList<>();
                 for (org.apache.poi.ss.usermodel.Row row : sheet) {
                     List<String> rowData = new ArrayList<>();
@@ -909,7 +919,7 @@ public class MCPServer {
                 sheetData.put("rows", rows);
                 sheets.add(sheetData);
             }
-            
+
             result.put("sheets", sheets);
             workbook.close();
             return result;
@@ -918,11 +928,11 @@ public class MCPServer {
             return Map.of("error", e.getMessage());
         }
     }
-    
+
     private static String convertToMarkdown(final String text, final Map<String, Object> structured) {
         final StringBuilder md = new StringBuilder();
         md.append("# Document\n\n");
-        
+
         // Add key-value pairs
         if (structured.containsKey("keyValues")) {
             @SuppressWarnings("unchecked")
@@ -933,14 +943,14 @@ public class MCPServer {
                 md.append('\n');
             }
         }
-        
+
         // Add raw text
         md.append("## Content\n\n");
         md.append("```\n").append(text).append("\n```\n");
-        
+
         return md.toString();
     }
-    
+
     private static void saveMetadata(final String jobPath, final Map<String, Object> metadata) {
         try {
             final Path metaPath = Paths.get(jobPath, "meta.json");
