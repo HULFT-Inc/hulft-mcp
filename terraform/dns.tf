@@ -1,7 +1,7 @@
 # Get Route53 hosted zone (optional)
 data "aws_route53_zone" "main" {
   count        = var.create_dns_record ? 1 : 0
-  name         = "hulft.predev.aws"
+  name         = "hulftincpredev.net"
   private_zone = false
 }
 

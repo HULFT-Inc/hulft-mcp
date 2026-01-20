@@ -37,7 +37,7 @@ variable "app_name" {
 variable "domain_name" {
   description = "Domain name for the service"
   type        = string
-  default     = "mcp.hulft.predev.aws"
+  default     = "mcp.hulftincpredev.net"
 }
 
 variable "container_port" {
@@ -67,5 +67,5 @@ variable "memory" {
 variable "create_dns_record" {
   description = "Create Route53 DNS record"
   type        = bool
-  default     = false
+  default     = true
 }
