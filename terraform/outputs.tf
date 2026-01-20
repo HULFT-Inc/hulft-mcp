@@ -8,6 +8,11 @@ output "alb_dns_name" {
   value       = aws_lb.main.dns_name
 }
 
+output "github_actions_role_arn" {
+  description = "IAM role ARN for GitHub Actions"
+  value       = aws_iam_role.github_actions.arn
+}
+
 output "service_url" {
   description = "Service URL"
   value       = var.create_dns_record ? "https://${var.domain_name}/mcp" : "https://${aws_lb.main.dns_name}/mcp"
