@@ -78,7 +78,7 @@ public class MCPServer {
     public static void main(final String[] args) {
         log.info("Starting MCP Server");
         
-        final Javalin app = Javalin.create().start(3333);
+        final Javalin app = Javalin.create().start("0.0.0.0", 3333);
 
         app.post("/mcp", ctx -> handlePost(ctx));
         app.get("/mcp", ctx -> handleGet(ctx));
