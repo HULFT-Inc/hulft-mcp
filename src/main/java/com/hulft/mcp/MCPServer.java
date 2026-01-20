@@ -88,14 +88,14 @@ public class MCPServer {
     );
 
     public static void main(final String[] args) {
-        log.info("Starting MCP Server");
+        log.info("Starting HULFT MCP Server v2.1.0");
         
         final Javalin app = Javalin.create().start("0.0.0.0", 3333);
 
         app.post("/mcp", ctx -> handlePost(ctx));
         app.get("/mcp", ctx -> handleGet(ctx));
 
-        log.info("MCP Server running on http://localhost:3333/mcp");
+        log.info("HULFT MCP Server ready at http://localhost:3333/mcp");
     }
 
     private static void handlePost(final Context ctx) {
