@@ -64,6 +64,12 @@ variable "memory" {
   default     = "1024"
 }
 
+variable "certificate_arn" {
+  description = "ARN of ACM certificate for HTTPS"
+  type        = string
+  default     = "arn:aws:acm:us-east-1:486560520867:certificate/c95122d8-b92c-470f-8aa3-fdd136041d9e"
+}
+
 variable "create_dns_record" {
   description = "Create Route53 DNS record"
   type        = bool
