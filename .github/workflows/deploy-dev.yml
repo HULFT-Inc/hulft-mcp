@@ -10,7 +10,7 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
-  ECR_REPOSITORY: hulft-mcp-dev
+  ECR_REPOSITORY: hulft-mcp
 
 jobs:
   deploy:
@@ -48,7 +48,7 @@ jobs:
       run: |
         docker buildx build --platform linux/amd64 \
           -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
-          -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:dev-latest \
           --push .
 
     - name: Deploy to ECS
